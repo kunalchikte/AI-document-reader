@@ -1,0 +1,39 @@
+# AI Document Reader Sample Document
+
+This is a sample document to test the AI Document Reader application.
+
+## About the Application
+
+The AI Document Reader is a powerful application that allows users to upload documents and ask questions about their content. It uses state-of-the-art language models and vector embeddings to provide accurate answers based on the document's content.
+
+## Features
+
+1. **Document Upload**: Users can upload various document types including PDF, DOCX, XLSX, and TXT files.
+2. **Document Processing**: The application processes the documents by extracting text, splitting it into smaller chunks, and generating vector embeddings.
+3. **Question Answering**: Users can ask questions about the document and receive accurate answers based on the document's content.
+4. **Multiple LLM Support**: The application supports both OpenAI and Ollama for embeddings and LLM-based question answering.
+
+## Technical Implementation
+
+The application is built using Node.js and Express for the backend, with MongoDB for document metadata storage and Supabase with pgvector for storing document embeddings.
+
+The document processing pipeline uses LangChain.js to handle the document ingestion and retrieval process. This includes:
+- Text extraction from various file formats
+- Text chunking to prepare for embedding
+- Vector embedding generation
+- Storage of embeddings in Supabase pgvector
+- Retrieval of relevant chunks when answering questions
+
+## Sample Data
+
+Here are some sample data points to test the application:
+
+- The capital of France is Paris
+- The largest planet in our solar system is Jupiter
+- The Great Wall of China is approximately 13,171 miles long
+- Water boils at 100 degrees Celsius at sea level
+- The chemical formula for water is H2O
+
+## Conclusion
+
+This sample document is designed to help test the functionality of the AI Document Reader application. By asking questions about the content of this document, you can verify that the document ingestion, embedding, and retrieval processes are working correctly. 

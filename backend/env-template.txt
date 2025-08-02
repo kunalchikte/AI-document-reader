@@ -1,0 +1,26 @@
+# Sample .env.local file for local development
+DB_URL=<MONGO_DB_URL>
+DB_NAME=<DB_NAME>
+DB_USERNAME=<DB_USERNAME>
+DB_PASSWORD=<DB_PASSWORD>
+
+# JWT Secret (replace with a stronger secret in production)
+JWT_SECRET=<SECRET_TOKEN>
+
+# Supabase (replace with your actual values)
+SUPABASE_URL=<SUPABASE_URL>
+SUPABASE_PRIVATE_KEY=<SUPABASE_PRIVATE_KEY>
+
+# LLM Settings
+EMBEDDING_MODEL=ollama
+LLM_MODEL=ollama
+
+# Ollama Settings (for local deployment)
+OLLAMA_API_URL=https://localhost:1141
+# OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+# OLLAMA_CHAT_MODEL=llama3
+EMBEDDING_MODEL=ollama
+OLLAMA_EMBEDDING_MODEL=llama2
+
+# Port for the server
+PORT=3000 

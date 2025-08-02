@@ -1,0 +1,706 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AI Document Reader API",
+    "version": "1.0.0",
+    "description": "Document-based Q&A Application API using LangChain.js and Supabase",
+    "contact": {
+      "name": "API Support"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Document": {
+        "type": "object",
+        "required": [
+          "originalName",
+          "fileType"
+        ],
+        "properties": {
+          "_id": {
+            "type": "string",
+            "description": "The document ID"
+          },
+          "originalName": {
+            "type": "string",
+            "description": "Original filename"
+          },
+          "fileType": {
+            "type": "string",
+            "enum": ["pdf", "docx", "xlsx", "txt"],
+            "description": "Type of document"
+          },
+          "vectorized": {
+            "type": "boolean",
+            "description": "Whether the document has been processed for Q&A"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Creation timestamp"
+          }
+        }
+      },
+      "Question": {
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "Question to ask about the document"
+          },
+          "topK": {
+            "type": "integer",
+            "description": "Number of relevant chunks to retrieve (default 5)"
+          }
+        }
+      },
+      "Answer": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string",
+            "description": "Answer to the question"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "Source text"
+                },
+                "metadata": {
+                  "type": "object",
+                  "description": "Source metadata"
+                }
+              }
+            }
+          }
+        }
+      },
+      "OllamaInstallationStatus": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["healthy", "unhealthy"],
+            "description": "Overall status of Ollama installation"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Documents",
+      "description": "Document operations"
+    },
+    {
+      "name": "System",
+      "description": "System initialization and status endpoints"
+    },
+    {
+      "name": "Setup",
+      "description": "Setup and configuration endpoints"
+    }
+  ],
+  "paths": {
+    "/documents": {
+      "get": {
+        "summary": "Get all documents",
+        "tags": ["Documents"],
+        "responses": {
+          "200": {
+            "description": "List of documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Document"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Upload a new document",
+        "tags": ["Documents"],
+        "consumes": [
+          "multipart/form-data"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Document uploaded successfully"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}": {
+      "get": {
+        "summary": "Get document by ID",
+        "tags": ["Documents"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Document ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Document"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a document",
+        "tags": ["Documents"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Document ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document deleted successfully"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/process": {
+      "post": {
+        "summary": "Process a document for Q&A",
+        "tags": ["Documents"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Document ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document processed successfully"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/ask": {
+      "post": {
+        "summary": "Ask a question about a document",
+        "tags": ["Documents"],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Document ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Question"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Question answered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Answer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/initialize": {
+      "post": {
+        "summary": "Initialize the application",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Initialization status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "supabase": {
+                          "type": "object",
+                          "properties": {
+                            "success": {
+                              "type": "boolean"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "uploads": {
+                          "type": "object",
+                          "properties": {
+                            "success": {
+                              "type": "boolean"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/status": {
+      "get": {
+        "summary": "Get system status",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "System status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "serverTime": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "config": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/ollama/status": {
+      "get": {
+        "summary": "Check Ollama status and run installation script",
+        "description": "Checks Ollama status and runs the installation script if needed to ensure all required models are available",
+        "tags": ["Setup"],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "api_url",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Ollama API URL (optional)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ollama status and installation results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": ["healthy", "unhealthy"],
+                          "description": "Overall status of Ollama installation"
+                        },
+                        "ollamaStatus": {
+                          "type": "object",
+                          "properties": {
+                            "server": {
+                              "type": "object",
+                              "properties": {
+                                "status": {
+                                  "type": "boolean"
+                                },
+                                "message": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "models": {
+                              "type": "object",
+                              "properties": {
+                                "status": {
+                                  "type": "boolean"
+                                },
+                                "message": {
+                                  "type": "string"
+                                },
+                                "models": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "size": {
+                                        "type": "integer"
+                                      },
+                                      "modified": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "embeddings": {
+                              "type": "object",
+                              "properties": {
+                                "status": {
+                                  "type": "boolean"
+                                },
+                                "message": {
+                                  "type": "string"
+                                },
+                                "endpoint": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "scriptOutput": {
+                          "type": "string",
+                          "description": "Output from the Ollama installation script"
+                        },
+                        "scriptError": {
+                          "type": "string",
+                          "description": "Error output from the installation script (if any)"
+                        },
+                        "exitCode": {
+                          "type": "integer",
+                          "description": "Exit code from the installation script"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 500
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": ["unhealthy"]
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/system/supabase/status": {
+      "get": {
+        "summary": "Check Supabase setup status",
+        "tags": ["Setup"],
+        "responses": {
+          "200": {
+            "description": "Supabase status information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "connection": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "boolean"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "pgvector": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "boolean"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "documentsTable": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "boolean"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "matchFunction": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "boolean"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/supabase/setup": {
+      "post": {
+        "summary": "Setup Supabase for vector storage",
+        "tags": ["Setup"],
+        "responses": {
+          "200": {
+            "description": "Supabase setup result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "boolean"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "results": {
+                          "type": "object",
+                          "properties": {
+                            "connection": {
+                              "type": "object"
+                            },
+                            "pgvector": {
+                              "type": "object"
+                            },
+                            "documentsTable": {
+                              "type": "object"
+                            },
+                            "matchFunction": {
+                              "type": "object"
+                            },
+                            "actions": {
+                              "type": "array",
+                              "items": {
+                                "type": "object"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+} 

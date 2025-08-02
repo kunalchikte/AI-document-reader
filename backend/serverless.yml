@@ -1,0 +1,88 @@
+service: HRMS
+frameworkVersion: '3'
+# Configuration validation: 'error' (fatal error), 'warn' (logged to the output) or 'off' (default: warn)
+configValidationMode: error
+
+# Optional deployment packaging configuration
+package:
+  individually: true
+  # Directories and files to include/exclude in the deployed package
+  patterns:
+    - 'src/**'
+    - '!package.json'
+    - '!package-lock.json'
+    - '!node_modules/**'
+useDotenv: true
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: local
+  region: us-west-1
+  memorySize: 256
+  timeout: 10
+  # iam:
+  #   role: ${env:AWS_IAM_ROLE}
+  # vpc:
+  #   securityGroupIds:
+  #     - ${env:AWS_VPC_SEC_GRP_ID}
+  #   subnetIds:
+  #     - ${env:AWS_VPC_SUBNET_ID1}
+  #     - ${env:AWS_VPC_SUBNET_ID2}
+  # layers:
+  #   - ${env:AWS_LAYER}
+  environment:
+    DB_PASSWORD: ${param:db_password}
+    TOKEN_SECRET: ${param:jwt_secrete}
+    TOKEN_REF_SECRET: ${param:jwt_ref_secrete}
+    API_KEY: ${param:api_key}
+    API_SECRETE: ${param:api_secrete}
+    MAIL_PASS: ${param:mail_pass}
+  logs:
+    httpApi: true
+custom:
+  serverless-offline:
+    ignoreJWTSignature: true
+    useChildProcesses: false
+
+functions:
+  main:
+    handler: src/handlers/main.main
+    events:
+      - httpApi: 'GET /user/{proxy+}'
+      - httpApi: 'POST /user/{proxy+}'
+      - httpApi: 'DELETE /user/{proxy+}'
+      - httpApi: 'PUT /user/{proxy+}'
+
+      - httpApi: 'GET /example/{proxy+}'
+      - httpApi: 'POST /example/{proxy+}'
+      - httpApi: 'DELETE /example/{proxy+}'
+      - httpApi: 'PUT /example/{proxy+}'
+
+plugins:
+  - serverless-offline
+  - serverless-dotenv-plugin
+
+params:
+  # default:
+  #   db_password: ${ssm:/qa_db_password,''}
+  #   jwt_secrete: ${ssm:/qa_jwt_secrete,''}
+  #   jwt_ref_secrete: ${ssm:/qa_jwt_ref_secrete,''}
+  #   api_key: ${ssm:/qa_api_key,''}
+  #   api_secrete: ${ssm:/qa_api_secrete,''}
+  #   mail_pass: ${ssm:/qa_mail_pass,''}
+
+  local:
+    db_password: ''
+    jwt_secrete: '9N9szCK2qiY/WNG6PKwr1RhMUMNdXtMr0cPEPDy6DqL8zWsEan3tGS1F4ZeDI2OE'
+    jwt_ref_secrete: ''
+    api_key: ''
+    api_secrete: ''
+    mail_pass: ''
+
+  # prod:
+  #   db_password: ${ssm:/prod_db_password,''}
+  #   jwt_secrete: ${ssm:/prod_jwt_secrete,''}
+  #   jwt_ref_secrete: ${ssm:/prod_jwt_ref_secrete,''}
+  #   api_key: ${ssm:/prod_api_key,''}
+  #   api_secrete: ${ssm:/prod_api_secrete,''}
+  #   mail_pass: ${ssm:/prod_mail_pass,''}

@@ -1,0 +1,13 @@
+{
+    "groups": {
+        "super_admin":["SUP-ADM"],
+        "admin": ["admin","ADM-LVL-1","ADM-LVL-2"],
+        "user": ["USR-LVL-1","USR-LVL-2"],
+        "example" : []
+    },
+    "exception":["get/user/logout","post/user/login","post/user/forgot_password"],
+    "access": {
+        "get/user/profile": ["admin"],
+        "put/user/profile": ["admin"]
+    }
+}
