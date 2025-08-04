@@ -77,46 +77,15 @@ const Header = () => {
             </IconButton>
           ) : (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <Button
-                variant="text"
-                color="inherit"
-                startIcon={<GitHubIcon />}
-                href="https://github.com/yourusername/ai-document-reader"
+              <IconButton
+                color="primary"
+                aria-label="GitHub repository"
+                href="https://github.com/kunalchikte/AI-document-reader.git"
                 target="_blank"
                 rel="noopener noreferrer"
-                sx={{
-                  textTransform: 'none',
-                  fontWeight: 500
-                }}
               >
-                GitHub
-              </Button>
-              
-              <Button
-                variant="outlined"
-                color="primary"
-                sx={{
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  borderRadius: 30,
-                  px: 2
-                }}
-              >
-                API Docs
-              </Button>
-
-              <Button
-                variant="contained"
-                color="primary"
-                sx={{
-                  textTransform: 'none',
-                  fontWeight: 600,
-                  borderRadius: 30,
-                  px: 2
-                }}
-              >
-                Get Started
-              </Button>
+                <GitHubIcon />
+              </IconButton>
             </Box>
           )}
         </Toolbar>
