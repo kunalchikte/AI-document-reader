@@ -1,19 +1,39 @@
 const mongoose = require("mongoose");
-const { createClient } = require("@supabase/supabase-js");
+const { Pool } = require("pg");
 
-// Supabase Connection
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_PRIVATE_KEY;
+// PostgreSQL Connection for pgvector
+const pgConfig = {
+	user: process.env.PG_USER || process.env.POSTGRES_USER,
+	host: process.env.PG_HOST || process.env.POSTGRES_HOST || 'localhost',
+	database: process.env.PG_DATABASE || process.env.POSTGRES_DB || 'ai_documents',
+	password: process.env.PG_PASSWORD || process.env.POSTGRES_PASSWORD,
+	port: process.env.PG_PORT || process.env.POSTGRES_PORT || 5432,
+	max: 20, // Maximum number of clients in the pool
+	idleTimeoutMillis: 30000, // How long a client is allowed to remain idle
+	connectionTimeoutMillis: 2000, // How long to wait for a connection
+};
 
-// Initialize Supabase client
-let supabase = null;
+// Initialize PostgreSQL client
+let pgPool = null;
 
-if (supabaseUrl && supabaseKey) {
+if (pgConfig.user && pgConfig.password) {
 	try {
-		supabase = createClient(supabaseUrl, supabaseKey);
+		pgPool = new Pool(pgConfig);
+		console.log("PostgreSQL connection pool initialized successfully");
+		
+		// Test the connection
+		pgPool.on('connect', (client) => {
+			console.log('New PostgreSQL client connected');
+		});
+		
+		pgPool.on('error', (err) => {
+			console.error('PostgreSQL pool error:', err);
+		});
 	} catch (err) {
-		console.error("Supabase connection error: ", err);
+		console.error("PostgreSQL connection error: ", err);
 	}
+} else {
+	console.warn("PostgreSQL connection not configured. Check PG_USER and PG_PASSWORD environment variables.");
 }
 
 /**
@@ -61,9 +81,43 @@ const initializeMongo = async () => {
     }
 };
 
-// Export the mongoose instance, supabase client, and the initialization function
+/**
+ * Initialize PostgreSQL connection and test pgvector extension
+ * @returns {Promise<void>} A promise that resolves when the connection is established
+ */
+const initializePostgreSQL = async () => {
+    if (!pgPool) {
+        console.warn("PostgreSQL connection pool not initialized. Check your environment variables.");
+        return Promise.resolve();
+    }
+    
+    try {
+        // Test the connection
+        const client = await pgPool.connect();
+        
+        // Check if pgvector extension is available
+        const extensionQuery = await client.query(
+            "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector') as has_vector"
+        );
+        
+        if (!extensionQuery.rows[0].has_vector) {
+            console.warn("pgvector extension is not installed. Please install it first.");
+        } else {
+            console.log("pgvector extension is available");
+        }
+        
+        client.release();
+        return Promise.resolve();
+    } catch (error) {
+        console.error("PostgreSQL connection error:", error);
+        return Promise.reject(error);
+    }
+};
+
+// Export the mongoose instance, pgPool, and the initialization functions
 module.exports = {
 	mongoose,
-	supabase,
-    initializeMongo
+	pgPool,
+    initializeMongo,
+    initializePostgreSQL
 };

@@ -12,7 +12,6 @@
     "@langchain/community": "^0.3.49",
     "@langchain/core": "^0.3.58",
     "@langchain/openai": "^0.6.0",
-    "@supabase/supabase-js": "^2.39.3",
     "axios": "^1.7.7",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
@@ -45,5 +44,5 @@
   "main": "server.js",
   "author": "",
   "license": "ISC",
-  "description": "Document-based Q&A application using LangChain.js and Supabase"
+  "description": "Document-based Q&A application using LangChain.js and PostgreSQL with pgvector"
 }

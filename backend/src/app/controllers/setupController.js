@@ -1,4 +1,4 @@
-const supabaseService = require("../services/supabaseService");
+const pgVectorService = require("../services/pgVectorService");
 const ollamaService = require("../services/ollamaService");
 const fs = require("fs");
 const path = require("path");
@@ -12,8 +12,8 @@ const { exec } = require("child_process");
  */
 exports.initializeApp = async (req, res) => {
     try {
-        // Check Supabase connection
-        const supabaseStatus = await supabaseService.checkSetup()
+        // Check PostgreSQL connection
+        const pgVectorStatus = await pgVectorService.checkSetup()
             .catch(error => {
                 return { 
                     connection: { status: false, message: error.message },
@@ -51,11 +51,11 @@ exports.initializeApp = async (req, res) => {
             status: 200,
             msg: "Initialization status",
             data: {
-                supabase: {
-                    connection: supabaseStatus.connection,
-                    pgvector: supabaseStatus.pgvector,
-                    documentsTable: supabaseStatus.documentsTable,
-                    matchFunction: supabaseStatus.matchFunction
+                postgresql: {
+                    connection: pgVectorStatus.connection,
+                    pgvector: pgVectorStatus.pgvector,
+                    documentsTable: pgVectorStatus.documentsTable,
+                    matchFunction: pgVectorStatus.matchFunction
                 },
                 ollama: ollamaStatus,
                 uploads: uploadsResult
@@ -249,50 +249,197 @@ exports.setupSpecificModel = async (req, res) => {
 };
 
 /**
- * Check Supabase setup status
+ * Check PostgreSQL setup status
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  * @returns {Promise<void>}
  */
-exports.checkSupabaseStatus = async (req, res) => {
+exports.checkPostgreSQLStatus = async (req, res) => {
     try {
-        // Check Supabase status
-        const supabaseStatus = await supabaseService.checkSetup();
+        // Check PostgreSQL status
+        const pgVectorStatus = await pgVectorService.checkSetup();
         
         return res.status(200).json({
             status: 200,
-            msg: "Supabase status",
-            data: supabaseStatus
+            msg: "PostgreSQL status",
+            data: pgVectorStatus
         });
     } catch (error) {
         return res.status(500).json({
             status: 500,
-            msg: `Error checking Supabase status: ${error.message}`,
+            msg: `Error checking PostgreSQL status: ${error.message}`,
             data: null
         });
     }
 };
 
 /**
- * Setup Supabase for vector storage
+ * Setup PostgreSQL for vector storage
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  * @returns {Promise<void>}
  */
-exports.setupSupabase = async (req, res) => {
+exports.setupPostgreSQL = async (req, res) => {
     try {
-        // Setup Supabase
-        const result = await supabaseService.setupSupabase();
+        // Setup PostgreSQL
+        const result = await pgVectorService.setupPostgreSQL();
         
         return res.status(200).json({
             status: 200,
-            msg: result.status ? "Supabase setup completed successfully" : "Supabase setup completed with issues",
+            msg: result.status ? "PostgreSQL setup completed successfully" : "PostgreSQL setup completed with issues",
             data: result
         });
     } catch (error) {
         return res.status(500).json({
             status: 500,
-            msg: `Error setting up Supabase: ${error.message}`,
+            msg: `Error setting up PostgreSQL: ${error.message}`,
+            data: null
+        });
+    }
+};
+
+/**
+ * Synchronize PostgreSQL database schema
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Promise<void>}
+ */
+exports.syncPostgreSQL = async (req, res) => {
+    try {
+        // Synchronize database schema
+        const result = await pgVectorService.syncDatabase();
+        
+        return res.status(200).json({
+            status: 200,
+            msg: result.status ? "Database schema synchronized successfully" : "Database schema synchronization completed with issues",
+            data: result
+        });
+    } catch (error) {
+        return res.status(500).json({
+            status: 500,
+            msg: `Error synchronizing database schema: ${error.message}`,
+            data: null
+        });
+    }
+};
+
+/**
+ * Debug PostgreSQL documents table
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Promise<void>}
+ */
+exports.debugPostgreSQL = async (req, res) => {
+    try {
+        const { pgPool } = require("../../config/dbConnect");
+        const client = await pgPool.connect();
+        
+        try {
+            // Get document count
+            const countResult = await client.query('SELECT COUNT(*) as total FROM documents');
+            
+            // Get sample documents with metadata
+            const sampleResult = await client.query(`
+                SELECT id, 
+                       LEFT(content, 100) as content_preview,
+                       metadata,
+                       created_at
+                FROM documents 
+                ORDER BY created_at DESC 
+                LIMIT 5
+            `);
+            
+            // Get unique document IDs from metadata
+            const metadataResult = await client.query(`
+                SELECT DISTINCT 
+                    metadata->>'documentId' as document_id,
+                    metadata->>'source' as source,
+                    COUNT(*) as chunk_count
+                FROM documents 
+                WHERE metadata->>'documentId' IS NOT NULL
+                GROUP BY metadata->>'documentId', metadata->>'source'
+                ORDER BY chunk_count DESC
+            `);
+            
+            return res.status(200).json({
+                status: 200,
+                msg: "PostgreSQL debug information",
+                data: {
+                    totalDocuments: parseInt(countResult.rows[0].total),
+                    sampleDocuments: sampleResult.rows,
+                    documentMetadata: metadataResult.rows
+                }
+            });
+        } finally {
+            client.release();
+        }
+    } catch (error) {
+        return res.status(500).json({
+            status: 500,
+            msg: `Error debugging PostgreSQL: ${error.message}`,
+            data: null
+        });
+    }
+};
+
+/**
+ * Test document lookup by ID
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @returns {Promise<void>}
+ */
+exports.testDocumentLookup = async (req, res) => {
+    try {
+        const { documentId } = req.params;
+        const { pgPool } = require("../../config/dbConnect");
+        const client = await pgPool.connect();
+        
+        try {
+            // Test direct query
+            const directQuery = await client.query(
+                `SELECT id, LEFT(content, 200) as content_preview, metadata FROM documents WHERE metadata->>'documentId' = $1 OR metadata->>'document_id' = $1 OR metadata->>'id' = $1`,
+                [documentId]
+            );
+            
+            // Test vector search function
+            let vectorTest = null;
+            try {
+                const testEmbedding = `[${Array(1536).fill(0.1).join(',')}]`;
+                const vectorQuery = await client.query(
+                    `SELECT id, LEFT(content, 100) as content_preview, metadata FROM match_documents($1::vector, 0.1, 5)`,
+                    [testEmbedding]
+                );
+                vectorTest = {
+                    success: true,
+                    results: vectorQuery.rows.length,
+                    sample: vectorQuery.rows.slice(0, 2)
+                };
+            } catch (error) {
+                vectorTest = {
+                    success: false,
+                    error: error.message
+                };
+            }
+            
+            return res.status(200).json({
+                status: 200,
+                msg: "Document lookup test results",
+                data: {
+                    documentId,
+                    directQuery: {
+                        results: directQuery.rows.length,
+                        data: directQuery.rows
+                    },
+                    vectorTest
+                }
+            });
+        } finally {
+            client.release();
+        }
+    } catch (error) {
+        return res.status(500).json({
+            status: 500,
+            msg: `Error testing document lookup: ${error.message}`,
             data: null
         });
     }

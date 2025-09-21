@@ -8,7 +8,10 @@ module.exports = function (router, auth) {
     // Ollama status and installation
     router.get("/system/ollama/status", setupController.checkOllamaStatus);
     
-    // Supabase setup routes
-    router.get("/system/supabase/status", setupController.checkSupabaseStatus);
-    router.post("/system/supabase/setup", setupController.setupSupabase);
+    // PostgreSQL setup routes
+    router.get("/system/postgresql/status", setupController.checkPostgreSQLStatus);
+    router.post("/system/postgresql/setup", setupController.setupPostgreSQL);
+    router.post("/system/postgresql/sync", setupController.syncPostgreSQL);
+    router.get("/system/postgresql/debug", setupController.debugPostgreSQL);
+    router.get("/system/postgresql/test-lookup/:documentId", setupController.testDocumentLookup);
 }; 

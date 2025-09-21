@@ -105,11 +105,31 @@ app.use((err, req, res, next) => {
 require("../config/cors")(app); // Cors Added
 // require("../app/middleware/auth/auth").verifyKeys(app); // Verify API Keys
 
-// Initialize MongoDB connection before mounting routes
-require("../config/dbConnect")
-    .initializeMongo()
-    .then(() => {
-        // Mount routes after DB connection is established
+// Initialize database connections before mounting routes
+const { initializeMongo, initializePostgreSQL } = require("../config/dbConnect");
+
+Promise.all([
+    initializeMongo(),
+    initializePostgreSQL()
+])
+    .then(async () => {
+        console.log("All database connections established successfully");
+        
+        // Synchronize PostgreSQL schema after connection is established
+        try {
+            const pgVectorService = require("../app/services/pgVectorService");
+            const syncResult = await pgVectorService.syncDatabase();
+            if (syncResult.status) {
+                console.log("PostgreSQL schema synchronized successfully");
+            } else {
+                console.warn(`PostgreSQL schema sync warning: ${syncResult.message}`);
+            }
+        } catch (syncError) {
+            console.warn(`PostgreSQL schema sync error: ${syncError.message}`);
+            // Continue startup even if sync fails
+        }
+        
+        // Mount routes after DB connections are established
         require("../routes")(app, router);
         
         const PORT = process.env.PORT || 3000;
@@ -121,7 +141,7 @@ require("../config/dbConnect")
         });
     })
     .catch(err => {
-        console.error("Failed to connect to MongoDB:", err);
+        console.error("Failed to connect to databases:", err);
         process.exit(1);
     });
 

@@ -36,6 +36,8 @@ const documentSchema = new mongoose.Schema(
 		},
 		supabaseCollectionName: {
 			type: String,
+			// Note: This field name is kept for backward compatibility
+			// It now refers to the PostgreSQL table name instead of Supabase collection
 		},
 		isDeleted: {
 			type: Boolean,

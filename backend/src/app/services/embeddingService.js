@@ -1,7 +1,6 @@
 const { OpenAIEmbeddings } = require("@langchain/openai");
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
-const { SupabaseVectorStore } = require("@langchain/community/vectorstores/supabase");
-const { supabase } = require("../../config/dbConnect");
+const PostgresVectorStore = require("./postgresVectorStore");
 const Document = require("../models/documentModel");
 const { DirectOllamaEmbeddings } = require("./customEmbeddings");
 
@@ -20,19 +19,29 @@ class EmbeddingService {
                 throw new Error("Document not found");
             }
 
-            // Check if Supabase is properly configured
-            if (!supabase) {
-                throw new Error("Supabase client is not initialized. Check your SUPABASE_URL and SUPABASE_PRIVATE_KEY environment variables.");
+            // Check if PostgreSQL is properly configured
+            const { pgPool } = require("../../config/dbConnect");
+            if (!pgPool) {
+                throw new Error("PostgreSQL connection pool is not initialized. Check your PostgreSQL environment variables.");
             }
             
-            // Test Supabase connection
+            // Test PostgreSQL connection
             try {
-                const { error } = await supabase.from('documents').select('id').limit(1);
-                if (error && !error.message.includes('does not exist')) {
-                    throw new Error(`Supabase connection error: ${error.message}`);
-                }
+                const client = await pgPool.connect();
+                await client.query('SELECT 1');
+                client.release();
             } catch (error) {
-                throw new Error(`Failed to connect to Supabase: ${error.message}`);
+                throw new Error(`Failed to connect to PostgreSQL: ${error.message}`);
+            }
+
+            // Ensure database schema is synchronized before creating embeddings
+            const pgVectorService = require("./pgVectorService");
+            const syncResult = await pgVectorService.syncDatabase();
+            if (!syncResult.status) {
+                console.warn(`Database sync warning: ${syncResult.message}`);
+                // Continue anyway, as the sync might have partial success
+            } else {
+                console.log("Database schema synchronized successfully");
             }
 
             // Initialize the embedding model
@@ -46,24 +55,20 @@ class EmbeddingService {
             
             const chunks = await textSplitter.splitText(text);
             
-            // Use the fixed "documents" table in Supabase
+            // Create the vector store with the chunks
             const tableName = "documents";
-            
-            // Ensure document ID is stored consistently as a string
             const docIdStr = documentId.toString();
             
-            // Store embeddings in Supabase with all possible ID formats
-            await SupabaseVectorStore.fromTexts(
+            await PostgresVectorStore.fromTexts(
                 chunks,
-                { 
-                    // documentId: docIdStr, 
-                    // document_id: docIdStr,
-                    id: docIdStr,
-                    source: document.originalName 
-                },
+                chunks.map(() => ({ 
+                    documentId: docIdStr,
+                    source: document.originalName,
+                    document_id: docIdStr,
+                    id: docIdStr
+                })),
                 embeddings,
                 {
-                    client: supabase,
                     tableName: tableName,
                     queryName: "match_documents",
                 }
@@ -71,7 +76,7 @@ class EmbeddingService {
             
             // Update the document record with embedding info
             document.vectorized = true;
-            document.supabaseCollectionName = tableName; // Store the fixed table name
+            document.supabaseCollectionName = tableName; // Keep field name for compatibility
             await document.save();
             
             return {
@@ -121,128 +126,136 @@ class EmbeddingService {
      */
     async findRelevantChunks(documentId, query, topK = 5) {
         try {
+            console.log(`[DEBUG] Finding relevant chunks for document: ${documentId}`);
+            
             const document = await Document.findById(documentId);
             if (!document) {
+                console.log(`[DEBUG] Document not found in MongoDB: ${documentId}`);
                 throw new Error("Document not found");
             }
             
+            console.log(`[DEBUG] Document found: ${document.originalName}, vectorized: ${document.vectorized}`);
+            
             if (!document.vectorized) {
+                console.log(`[DEBUG] Document has not been vectorized: ${documentId}`);
                 throw new Error("Document has not been vectorized");
             }
             
-            // Use the fixed "documents" table
-            const tableName = "documents";
+            const docIdStr = documentId.toString();
+            const { pgPool } = require("../../config/dbConnect");
+            const client = await pgPool.connect();
             
-            // Try direct query to find documents matching our ID
             try {
-                // Direct query to find all chunks for this document
-                const { data: matchingDocs, error: queryError } = await supabase
-                    .from(tableName)
-                    .select('id, content, metadata')
-                    .limit(100);
+                // First, try direct document lookup (most reliable)
+                console.log(`[DEBUG] Attempting direct document lookup for: ${docIdStr}`);
+                const directResult = await client.query(
+                    `SELECT id, content, metadata FROM documents WHERE metadata->>'documentId' = $1 OR metadata->>'document_id' = $1 OR metadata->>'id' = $1`,
+                    [docIdStr]
+                );
                 
-                if (queryError) {
-                    console.error(`Direct query error: ${queryError.message}`);
-                    throw new Error(`Direct query error: ${queryError.message}`);
-                }
+                console.log(`[DEBUG] Direct lookup returned ${directResult.rows.length} results`);
                 
-                if (!matchingDocs || matchingDocs.length === 0) {
-                    throw new Error("No documents found in Supabase");
-                }
-                
-                // Filter chunks by document ID
-                const docIdStr = documentId.toString();
-                const matchingChunks = matchingDocs.filter(doc => {
-                    try {
-                        const meta = typeof doc.metadata === 'string' 
-                            ? JSON.parse(doc.metadata) 
-                            : doc.metadata;
-                        
-                        // Try multiple formats of the ID
-                        return meta?.documentId === docIdStr || 
-                              meta?.document_id === docIdStr || 
-                              meta?.id === docIdStr ||
-                              (meta?.documentId && meta.documentId.toString().includes(docIdStr));
-                    } catch (err) {
-                        return false;
-                    }
-                });
-                
-                if (matchingChunks.length > 0) {
-                    // Convert the chunks to the expected format
-                    const formattedChunks = matchingChunks.map(doc => ({
-                        pageContent: doc.content,
-                        metadata: typeof doc.metadata === 'string' ? JSON.parse(doc.metadata) : doc.metadata
-                    }));
+                if (directResult.rows.length > 0) {
+                    console.log(`[DEBUG] ✅ Found document chunks directly, using text-based relevance scoring`);
                     
-                    // If embedding API is failing, use simple text-based relevance
-                    try {
-                        // Convert query to lowercase for comparison
-                        const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
+                    // Use text-based relevance scoring
+                    const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
+                    
+                    if (queryTerms.length === 0) {
+                        // If no meaningful query terms, return all chunks
+                        return directResult.rows.slice(0, topK).map(doc => ({
+                            pageContent: doc.content,
+                            metadata: typeof doc.metadata === 'string' ? JSON.parse(doc.metadata) : doc.metadata
+                        }));
+                    }
+                    
+                    // Score chunks based on query term frequency
+                    const scoredChunks = directResult.rows.map(doc => {
+                        const content = doc.content.toLowerCase();
+                        let score = 0;
                         
-                        if (queryTerms.length === 0) {
-                            // If query is too short or has no meaningful terms, just return the chunks
-                            return formattedChunks.slice(0, topK);
-                        }
-                        
-                        // Score each chunk based on query term frequency
-                        const scoredChunks = formattedChunks.map(chunk => {
-                            const content = chunk.pageContent.toLowerCase();
-                            let score = 0;
-                            
-                            // Calculate score based on term frequency
-                            queryTerms.forEach(term => {
-                                const regex = new RegExp(term, 'g');
-                                const matches = content.match(regex);
-                                if (matches) {
-                                    score += matches.length;
-                                }
-                            });
-                            
-                            return { chunk, score };
+                        queryTerms.forEach(term => {
+                            const regex = new RegExp(term, 'g');
+                            const matches = content.match(regex);
+                            if (matches) {
+                                score += matches.length;
+                            }
                         });
                         
-                        // Sort by score (descending)
-                        scoredChunks.sort((a, b) => b.score - a.score);
-                        
-                        // Get top K results
-                        const results = scoredChunks
-                            .slice(0, topK)
-                            .map(item => item.chunk);
-                        
-                        return results;
-                    } catch (scoringError) {
-                        console.error(`Error in text-based scoring: ${scoringError.message}`);
-                        // Fall back to returning the chunks without scoring
-                        return formattedChunks.slice(0, topK);
-                    }
-                } else {
-                    throw new Error(`No chunks found for document ID: ${docIdStr}`);
+                        return {
+                            doc,
+                            score
+                        };
+                    });
+                    
+                    // Sort by score and return top results
+                    scoredChunks.sort((a, b) => b.score - a.score);
+                    
+                    return scoredChunks.slice(0, topK).map(item => ({
+                        pageContent: item.doc.content,
+                        metadata: typeof item.doc.metadata === 'string' ? JSON.parse(item.doc.metadata) : item.doc.metadata
+                    }));
                 }
-            } catch (directQueryError) {
-                console.error(`Error in direct query: ${directQueryError.message}`);
-                throw directQueryError;
+                
+                // If direct lookup fails, try vector search as fallback
+                console.log(`[DEBUG] Direct lookup failed, attempting vector search...`);
+                
+                try {
+                    const embeddings = this._getEmbeddingModel();
+                    const queryEmbedding = await embeddings.embedQuery(query);
+                    
+                    // Check if embedding is valid (not all zeros from fallback)
+                    const hasNonZeroValues = queryEmbedding.some(val => val !== 0);
+                    if (hasNonZeroValues) {
+                        console.log(`[DEBUG] Using vector search with valid embedding`);
+                        const vectorResult = await client.query(
+                            `SELECT * FROM match_documents($1, 0.1, $2)`,
+                            [`[${queryEmbedding.join(',')}]`, topK * 2]
+                        );
+                        
+                        console.log(`[DEBUG] Vector search returned ${vectorResult.rows.length} results`);
+                        
+                        // Filter vector results by document ID
+                        const matchingChunks = vectorResult.rows.filter(doc => {
+                            try {
+                                const meta = typeof doc.metadata === 'string' 
+                                    ? JSON.parse(doc.metadata) 
+                                    : doc.metadata;
+                                
+                                return (meta?.documentId && meta.documentId.toString() === docIdStr) || 
+                                       (meta?.document_id && meta.document_id.toString() === docIdStr) || 
+                                       (meta?.id && meta.id.toString() === docIdStr);
+                            } catch (err) {
+                                return false;
+                            }
+                        });
+                        
+                        if (matchingChunks.length > 0) {
+                            console.log(`[DEBUG] ✅ Found ${matchingChunks.length} chunks via vector search`);
+                            return matchingChunks.slice(0, topK).map(doc => ({
+                                pageContent: doc.content,
+                                metadata: typeof doc.metadata === 'string' ? JSON.parse(doc.metadata) : doc.metadata
+                            }));
+                        }
+                    } else {
+                        console.log(`[DEBUG] Embedding is invalid (all zeros), skipping vector search`);
+                    }
+                } catch (vectorError) {
+                    console.log(`[DEBUG] Vector search failed: ${vectorError.message}`);
+                }
+                
+                // If both methods fail, throw error
+                console.log(`[DEBUG] ❌ No chunks found for document ID: ${docIdStr}`);
+                throw new Error(`No chunks found for document ID: ${docIdStr}`);
+                
+            } finally {
+                client.release();
             }
         } catch (error) {
             console.error("Error finding relevant chunks:", error);
             throw new Error(`Failed to find relevant chunks: ${error.message}`);
         }
     }
-    
-    /**
-     * List all documents that have been vectorized
-     * @returns {Promise<Array>} List of vectorized documents
-     */
-    async listVectorizedDocuments() {
-        try {
-            return await Document.find({
-                vectorized: true,
-                isDeleted: false
-            }).select("_id originalName fileType createdAt");
-        } catch (error) {
-            throw new Error(`Error listing vectorized documents: ${error.message}`);
-        }
-    }
 }
 
-module.exports = new EmbeddingService(); 
+module.exports = new EmbeddingService();
