@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     env_file: ./backend/.env
     ports:
-      - "3000:3000"
+      - "3003:3000"
     volumes:
       - backend_uploads:/app/uploads
 
@@ -14,7 +14,7 @@ services:
     container_name: ai-doc-reader-frontend
     restart: unless-stopped
     ports:
-      - "3001:80"
+      - "3004:80"
     depends_on:
       - backend
 
