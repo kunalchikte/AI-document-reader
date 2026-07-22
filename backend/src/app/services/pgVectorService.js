@@ -1,7 +1,8 @@
 const { pgPool } = require("../../config/dbConnect");
 const PostgresDocumentModel = require("../models/postgresDocumentModel");
-const fs = require('fs');
-const path = require('path');
+const documentRepository = require("../models/documentRepository");
+const userRepository = require("../models/userRepository");
+const chatRepository = require("../models/chatRepository");
 
 /**
  * Service for PostgreSQL with pgvector operations, including schema management and match function setup
@@ -321,7 +322,26 @@ class PgVectorService {
                 result: enableVectorResult
             });
 
-            // Sync documents table schema
+            // Sync uploaded documents metadata table
+            const uploadedDocsResult = await documentRepository.syncSchema();
+            actions.push({
+                action: "Sync uploaded_documents table schema",
+                result: uploadedDocsResult
+            });
+
+            const usersResult = await userRepository.syncSchema();
+            actions.push({
+                action: "Sync users table schema",
+                result: usersResult
+            });
+
+            const chatResult = await chatRepository.syncSchema();
+            actions.push({
+                action: "Sync chat_messages table schema",
+                result: chatResult
+            });
+
+            // Sync documents (vector chunks) table schema
             const syncTableResult = await PostgresDocumentModel.sync();
             actions.push({
                 action: "Sync documents table schema",

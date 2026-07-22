@@ -4,111 +4,196 @@ const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#3a86ff',
-      light: '#83b8ff',
-      dark: '#0057cb',
+      main: '#2563EB',
+      light: '#60A5FA',
+      dark: '#1D4ED8',
+      contrastText: '#FFFFFF',
     },
     secondary: {
-      main: '#ff006e',
-      light: '#ff5b9c',
-      dark: '#c50053',
+      main: '#0F172A',
+      light: '#334155',
+      dark: '#020617',
+      contrastText: '#FFFFFF',
     },
+    success: { main: '#059669' },
+    warning: { main: '#D97706' },
+    error: { main: '#DC2626' },
+    info: { main: '#0284C7' },
     background: {
-      default: '#f5f7fb',
-      paper: '#ffffff',
+      default: '#F1F5F9',
+      paper: '#FFFFFF',
     },
     text: {
-      primary: '#1e293b',
-      secondary: '#64748b',
+      primary: '#0F172A',
+      secondary: '#64748B',
     },
+    divider: '#E2E8F0',
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h1: {
-      fontWeight: 700,
-    },
-    h2: {
-      fontWeight: 700,
-    },
-    h3: {
-      fontWeight: 600,
-    },
-    h4: {
-      fontWeight: 600,
-    },
-    h5: {
-      fontWeight: 500,
-    },
-    h6: {
-      fontWeight: 500,
-    },
+    fontFamily: '"Plus Jakarta Sans", "Helvetica", "Arial", sans-serif',
+    h1: { fontFamily: '"Plus Jakarta Sans", sans-serif', fontWeight: 800, letterSpacing: '-0.03em' },
+    h2: { fontFamily: '"Plus Jakarta Sans", sans-serif', fontWeight: 700, letterSpacing: '-0.02em' },
+    h3: { fontFamily: '"Plus Jakarta Sans", sans-serif', fontWeight: 700, letterSpacing: '-0.02em' },
+    h4: { fontFamily: '"Plus Jakarta Sans", sans-serif', fontWeight: 700, letterSpacing: '-0.02em' },
+    h5: { fontFamily: '"Plus Jakarta Sans", sans-serif', fontWeight: 600 },
+    h6: { fontFamily: '"Plus Jakarta Sans", sans-serif', fontWeight: 600 },
+    subtitle1: { fontWeight: 600, letterSpacing: '-0.01em' },
+    subtitle2: { fontWeight: 600 },
+    body1: { fontSize: '1rem', lineHeight: 1.6 },
+    body2: { fontSize: '0.875rem', lineHeight: 1.55 },
     button: {
+      fontFamily: '"Plus Jakarta Sans", sans-serif',
       fontWeight: 600,
       textTransform: 'none',
+      letterSpacing: '0.01em',
     },
   },
   shape: {
-    borderRadius: 10,
+    borderRadius: 12,
   },
-  shadows: [
-    'none',
-    '0px 2px 1px -1px rgba(0,0,0,0.05),0px 1px 1px 0px rgba(0,0,0,0.03),0px 1px 3px 0px rgba(0,0,0,0.05)',
-    '0px 3px 3px -2px rgba(0,0,0,0.05),0px 3px 4px 0px rgba(0,0,0,0.04),0px 1px 8px 0px rgba(0,0,0,0.05)',
-    '0px 3px 5px -1px rgba(0,0,0,0.05),0px 5px 8px 0px rgba(0,0,0,0.04),0px 1px 14px 0px rgba(0,0,0,0.03)',
-    '0px 2px 4px -1px rgba(0,0,0,0.05),0px 4px 5px 0px rgba(0,0,0,0.04),0px 1px 10px 0px rgba(0,0,0,0.03)',
-    '0px 3px 5px -1px rgba(0,0,0,0.06),0px 5px 8px 0px rgba(0,0,0,0.05),0px 1px 14px 0px rgba(0,0,0,0.04)',
-    '0px 3px 5px -1px rgba(0,0,0,0.06),0px 6px 10px 0px rgba(0,0,0,0.05),0px 1px 18px 0px rgba(0,0,0,0.04)',
-    '0px 4px 5px -2px rgba(0,0,0,0.06),0px 7px 10px 1px rgba(0,0,0,0.05),0px 2px 16px 1px rgba(0,0,0,0.04)',
-    '0px 5px 5px -3px rgba(0,0,0,0.06),0px 8px 10px 1px rgba(0,0,0,0.05),0px 3px 14px 2px rgba(0,0,0,0.04)',
-    '0px 5px 6px -3px rgba(0,0,0,0.06),0px 9px 12px 1px rgba(0,0,0,0.05),0px 3px 16px 2px rgba(0,0,0,0.04)',
-    '0px 6px 6px -3px rgba(0,0,0,0.06),0px 10px 14px 1px rgba(0,0,0,0.05),0px 4px 18px 3px rgba(0,0,0,0.04)',
-    '0px 6px 7px -4px rgba(0,0,0,0.06),0px 11px 15px 1px rgba(0,0,0,0.05),0px 4px 20px 3px rgba(0,0,0,0.04)',
-    '0px 7px 8px -4px rgba(0,0,0,0.06),0px 12px 17px 2px rgba(0,0,0,0.05),0px 5px 22px 4px rgba(0,0,0,0.04)',
-    '0px 7px 8px -4px rgba(0,0,0,0.07),0px 13px 19px 2px rgba(0,0,0,0.05),0px 5px 24px 4px rgba(0,0,0,0.04)',
-    '0px 7px 9px -4px rgba(0,0,0,0.07),0px 14px 21px 2px rgba(0,0,0,0.05),0px 5px 26px 4px rgba(0,0,0,0.04)',
-    '0px 8px 9px -5px rgba(0,0,0,0.07),0px 15px 22px 2px rgba(0,0,0,0.05),0px 6px 28px 5px rgba(0,0,0,0.04)',
-    '0px 8px 10px -5px rgba(0,0,0,0.07),0px 16px 24px 2px rgba(0,0,0,0.05),0px 6px 30px 5px rgba(0,0,0,0.04)',
-    '0px 8px 11px -5px rgba(0,0,0,0.07),0px 17px 26px 2px rgba(0,0,0,0.05),0px 6px 32px 5px rgba(0,0,0,0.04)',
-    '0px 9px 11px -5px rgba(0,0,0,0.07),0px 18px 28px 2px rgba(0,0,0,0.05),0px 7px 34px 6px rgba(0,0,0,0.04)',
-    '0px 9px 12px -6px rgba(0,0,0,0.07),0px 19px 29px 2px rgba(0,0,0,0.05),0px 7px 36px 6px rgba(0,0,0,0.04)',
-    '0px 10px 13px -6px rgba(0,0,0,0.07),0px 20px 31px 3px rgba(0,0,0,0.05),0px 8px 38px 7px rgba(0,0,0,0.04)',
-    '0px 10px 13px -6px rgba(0,0,0,0.08),0px 21px 33px 3px rgba(0,0,0,0.05),0px 8px 40px 7px rgba(0,0,0,0.04)',
-    '0px 10px 14px -6px rgba(0,0,0,0.08),0px 22px 35px 3px rgba(0,0,0,0.05),0px 8px 42px 7px rgba(0,0,0,0.04)',
-    '0px 11px 14px -7px rgba(0,0,0,0.08),0px 23px 36px 3px rgba(0,0,0,0.05),0px 9px 44px 8px rgba(0,0,0,0.04)',
-    '0px 11px 15px -7px rgba(0,0,0,0.08),0px 24px 38px 3px rgba(0,0,0,0.05),0px 9px 46px 8px rgba(0,0,0,0.04)',
-  ],
+  spacing: 8,
+  breakpoints: {
+    values: { xs: 0, sm: 600, md: 900, lg: 1200, xl: 1536 },
+  },
   components: {
-    MuiButton: {
+    MuiCssBaseline: {
       styleOverrides: {
-        root: {
-          boxShadow: 'none',
-          '&:hover': {
-            boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.1)',
-          },
+        ':root': {
+          '--color-bg': '#F1F5F9',
+          '--color-surface': '#FFFFFF',
+          '--color-text': '#0F172A',
+          '--color-muted': '#64748B',
+          '--color-accent': '#2563EB',
+          '--color-accent-soft': '#DBEAFE',
+          '--color-border': '#E2E8F0',
+          '--color-success': '#059669',
+          '--color-warning': '#D97706',
+          '--color-danger': '#DC2626',
+          '--font-display': '"Plus Jakarta Sans", sans-serif',
+          '--font-body': '"Plus Jakarta Sans", sans-serif',
+          '--ease-out': 'cubic-bezier(0.22, 1, 0.36, 1)',
+          '--radius': '12px',
         },
-        contained: {
-          '&:hover': {
-            boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.1)',
+        '@media (prefers-reduced-motion: reduce)': {
+          '*, *::before, *::after': {
+            animationDuration: '0.01ms !important',
+            animationIterationCount: '1 !important',
+            transitionDuration: '0.01ms !important',
           },
         },
       },
     },
-    MuiCard: {
+    MuiButton: {
+      defaultProps: { disableElevation: true },
       styleOverrides: {
         root: {
-          borderRadius: 16,
-          boxShadow: '0px 4px 20px rgba(0, 0, 0, 0.05)',
+          minHeight: 44,
+          borderRadius: 10,
+          paddingInline: 18,
+          transition: 'background-color 180ms var(--ease-out), color 180ms var(--ease-out), border-color 180ms var(--ease-out), transform 180ms var(--ease-out)',
+          cursor: 'pointer',
+          '&:hover': { transform: 'translateY(-1px)' },
+          '&:active': { transform: 'translateY(0)' },
+          '&.Mui-disabled': { opacity: 0.45 },
+        },
+        containedPrimary: {
+          backgroundColor: 'var(--color-accent)',
+          '&:hover': { backgroundColor: '#1D4ED8' },
+        },
+        outlined: {
+          borderColor: 'var(--color-border)',
+          '&:hover': { borderColor: 'var(--color-accent)', backgroundColor: 'var(--color-accent-soft)' },
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          minWidth: 44,
+          minHeight: 44,
+          cursor: 'pointer',
+          transition: 'background-color 160ms var(--ease-out), color 160ms var(--ease-out)',
         },
       },
     },
     MuiPaper: {
+      defaultProps: { elevation: 0 },
       styleOverrides: {
-        rounded: {
-          borderRadius: 16,
+        root: {
+          backgroundImage: 'none',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius)',
+        },
+      },
+    },
+    MuiCard: {
+      defaultProps: { elevation: 0 },
+      styleOverrides: {
+        root: {
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius)',
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          fontWeight: 600,
+          borderRadius: 8,
+        },
+      },
+    },
+    MuiTab: {
+      styleOverrides: {
+        root: {
+          minHeight: 48,
+          fontWeight: 600,
+          textTransform: 'none',
+          cursor: 'pointer',
+        },
+      },
+    },
+    MuiTextField: {
+      styleOverrides: {
+        root: {
+          '& .MuiOutlinedInput-root': {
+            minHeight: 48,
+            borderRadius: 12,
+            backgroundColor: 'var(--color-surface)',
+            transition: 'border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out)',
+            '&.Mui-focused': {
+              boxShadow: '0 0 0 3px var(--color-accent-soft)',
+            },
+          },
+        },
+      },
+    },
+    MuiAlert: {
+      styleOverrides: {
+        root: {
+          borderRadius: 12,
+          border: '1px solid var(--color-border)',
+        },
+      },
+    },
+    MuiTooltip: {
+      styleOverrides: {
+        tooltip: {
+          fontSize: '0.75rem',
+          backgroundColor: '#0F172A',
+          borderRadius: 8,
+        },
+      },
+    },
+    MuiFocusVisible: {
+      styleOverrides: {
+        root: {
+          outline: '2px solid var(--color-accent)',
+          outlineOffset: 2,
         },
       },
     },
   },
 });
 
-export default theme; 
+export default theme;

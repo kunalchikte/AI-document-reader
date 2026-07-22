@@ -1,196 +1,177 @@
 import React from 'react';
-import { 
-  Box, 
-  Typography, 
-  Paper, 
-  List, 
-  ListItem, 
-  ListItemAvatar, 
-  ListItemText,
-  ListItemButton,
-  Avatar,
+import {
+  Box,
+  Typography,
   IconButton,
   Chip,
-  Tooltip
+  Tooltip,
+  Stack,
 } from '@mui/material';
 import {
-  Description as DescriptionIcon,
-  Delete as DeleteIcon,
-  Chat as ChatIcon
+  PictureAsPdf as PdfIcon,
+  Description as DocIcon,
+  TableChart as SheetIcon,
+  Article as TextIcon,
+  DeleteOutline as DeleteIcon,
+  ChatBubbleOutline as ChatIcon,
 } from '@mui/icons-material';
 import LoadingDots from './LoadingDots';
 
-const DocumentList = ({ 
-  documents = [], 
-  loading = false, 
-  onSelectDocument, 
+const typeMeta = {
+  pdf: { icon: PdfIcon, color: '#DC2626', label: 'PDF' },
+  docx: { icon: DocIcon, color: '#2563EB', label: 'DOCX' },
+  xlsx: { icon: SheetIcon, color: '#059669', label: 'XLSX' },
+  txt: { icon: TextIcon, color: '#64748B', label: 'TXT' },
+};
+
+const daysLeft = (expiresAt) => {
+  if (!expiresAt) return null;
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  const days = Math.ceil(ms / (1000 * 60 * 60 * 24));
+  return days < 0 ? 0 : days;
+};
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'Unknown date';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(dateString));
+};
+
+const DocumentList = ({
+  documents = [],
+  loading = false,
+  onSelectDocument,
   onDeleteDocument,
-  selectedDocumentId = null
+  selectedDocumentId = null,
 }) => {
   if (loading) {
     return (
-      <Box 
-        sx={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center',
-          height: '200px' 
-        }}
-      >
+      <Box sx={{ py: 6, display: 'grid', placeItems: 'center' }}>
         <LoadingDots text="Loading documents" />
       </Box>
     );
   }
 
-  if (!documents || documents.length === 0) {
+  if (!documents?.length) {
     return (
-      <Paper 
-        elevation={0} 
-        sx={{ 
-          p: 3, 
-          textAlign: 'center',
-          backgroundColor: 'rgba(0, 0, 0, 0.02)',
-          borderRadius: 2
+      <Box
+        sx={{
+          p: 2.5,
+          borderRadius: 2,
+          border: '1px dashed',
+          borderColor: 'divider',
+          backgroundColor: '#F8FAFC',
+          textAlign: 'left',
         }}
       >
-        <Typography variant="body1" color="textSecondary">
-          No documents uploaded yet
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+          No documents yet
         </Typography>
-        <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-          Upload a document to start asking questions
+        <Typography variant="body2" color="text.secondary">
+          Upload a file to start asking grounded questions.
         </Typography>
-      </Paper>
+      </Box>
     );
   }
 
-  const getFileIcon = (fileType) => {
-    switch (fileType.toLowerCase()) {
-      case 'pdf':
-        return <DescriptionIcon sx={{ color: '#f44336' }} />;
-      case 'docx':
-        return <DescriptionIcon sx={{ color: '#2196f3' }} />;
-      case 'xlsx':
-        return <DescriptionIcon sx={{ color: '#4caf50' }} />;
-      case 'txt':
-        return <DescriptionIcon sx={{ color: '#9e9e9e' }} />;
-      default:
-        return <DescriptionIcon />;
-    }
-  };
-
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Unknown date';
-    const date = new Date(dateString);
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date);
-  };
-
   return (
-    <List sx={{ width: '100%', bgcolor: 'background.paper', borderRadius: 2, overflow: 'hidden' }}>
-      {documents.map((document) => (
-        <ListItem
-          key={document._id}
-          disablePadding
-          secondaryAction={
-            <IconButton 
-              edge="end" 
-              aria-label="delete"
-              onClick={() => onDeleteDocument && onDeleteDocument(document._id)}
-            >
-              <DeleteIcon />
-            </IconButton>
-          }
-          sx={{
-            borderBottom: '1px solid',
-            borderColor: 'divider',
-            backgroundColor: selectedDocumentId === document._id ? 'rgba(58, 134, 255, 0.08)' : 'inherit'
-          }}
-        >
-          <ListItemButton 
-            onClick={() => onSelectDocument && onSelectDocument(document._id)}
-            selected={selectedDocumentId === document._id}
-            sx={{ borderRadius: 0 }}
+    <Stack spacing={1} role="list" aria-label="Uploaded documents">
+      {documents.map((document) => {
+        const meta = typeMeta[document.fileType?.toLowerCase()] || typeMeta.txt;
+        const Icon = meta.icon;
+        const selected = selectedDocumentId === document._id;
+        const left = daysLeft(document.expiresAt);
+
+        return (
+          <Box
+            key={document._id}
+            role="listitem"
+            className={`doc-item${selected ? ' is-selected' : ''}`}
+            component="button"
+            type="button"
+            onClick={() => onSelectDocument?.(document._id)}
+            aria-pressed={selected}
+            aria-label={`Select ${document.originalName}`}
           >
-            <ListItemAvatar>
-              <Avatar 
-                variant="rounded" 
-                sx={{ 
-                  bgcolor: 'background.paper', 
-                  color: 'primary.main',
-                  boxShadow: 1
-                }}
-              >
-                {getFileIcon(document.fileType)}
-              </Avatar>
-            </ListItemAvatar>
-            <ListItemText
-              primary={
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography 
-                    variant="subtitle1" 
-                    component="span" 
-                    sx={{ mr: 1, fontWeight: selectedDocumentId === document._id ? 600 : 400 }}
+            <Box
+              sx={{
+                width: 42,
+                height: 42,
+                borderRadius: 1.5,
+                display: 'grid',
+                placeItems: 'center',
+                backgroundColor: `${meta.color}14`,
+                color: meta.color,
+                flexShrink: 0,
+              }}
+              aria-hidden
+            >
+              <Icon fontSize="small" />
+            </Box>
+
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25, flexWrap: 'wrap' }}>
+                <Typography
+                  variant="body2"
+                  noWrap
+                  sx={{ fontWeight: selected ? 700 : 600, flex: 1, minWidth: 0 }}
+                >
+                  {document.originalName}
+                </Typography>
+                <Chip
+                  size="small"
+                  label={document.vectorized ? 'Ready' : 'Processing'}
+                  color={document.vectorized ? 'success' : 'warning'}
+                  sx={{ height: 22, fontSize: '0.68rem' }}
+                />
+                {left !== null && (
+                  <Chip
+                    size="small"
+                    label={left === 0 ? 'Expires today' : `${left}d left`}
+                    variant="outlined"
+                    color={left <= 1 ? 'warning' : 'default'}
+                    sx={{ height: 22, fontSize: '0.68rem' }}
+                  />
+                )}
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                {meta.label} · {formatDate(document.createdAt)}
+              </Typography>
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 0.25 }} onClick={(e) => e.stopPropagation()}>
+              {document.vectorized && (
+                <Tooltip title="Open chat">
+                  <IconButton
+                    size="small"
+                    aria-label={`Chat with ${document.originalName}`}
+                    onClick={() => onSelectDocument?.(document._id)}
                   >
-                    {document.originalName}
-                  </Typography>
-                  {document.vectorized ? (
-                    <Tooltip title="Ready for Q&A">
-                      <Chip 
-                        label="Ready" 
-                        size="small" 
-                        color="success" 
-                        sx={{ height: 20, fontSize: '0.7rem' }}
-                      />
-                    </Tooltip>
-                  ) : (
-                    <Tooltip title="Processing...">
-                      <Chip 
-                        label="Processing" 
-                        size="small" 
-                        color="warning" 
-                        sx={{ height: 20, fontSize: '0.7rem' }}
-                      />
-                    </Tooltip>
-                  )}
-                </Box>
-              }
-              secondary={
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography
-                    component="span"
-                    variant="body2"
-                    color="text.secondary"
-                  >
-                    {formatDate(document.createdAt)}
-                  </Typography>
-                  {document.vectorized && (
-                    <Tooltip title="Chat with document">
-                      <IconButton 
-                        size="small" 
-                        color="primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectDocument && onSelectDocument(document._id);
-                        }}
-                        sx={{ ml: 1 }}
-                      >
-                        <ChatIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </Box>
-              }
-            />
-          </ListItemButton>
-        </ListItem>
-      ))}
-    </List>
+                    <ChatIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="Delete document">
+                <IconButton
+                  size="small"
+                  aria-label={`Delete ${document.originalName}`}
+                  onClick={() => onDeleteDocument?.(document._id)}
+                  color="error"
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        );
+      })}
+    </Stack>
   );
 };
 
-export default DocumentList; 
+export default DocumentList;

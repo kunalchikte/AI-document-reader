@@ -11,7 +11,7 @@ class DirectOllamaEmbeddings extends Embeddings {
     
     this.model = fields.model || "llama2";
     this.baseUrl = fields.baseUrl || "http://localhost:11434";
-    this.dimensions = fields.dimensions || 1536; // Target dimension for compatibility with Supabase
+    this.dimensions = fields.dimensions || 1536; // Target dimension for pgvector compatibility
     this.timeout = fields.timeout || 60000;
     
     // Remove trailing slash if present in baseUrl

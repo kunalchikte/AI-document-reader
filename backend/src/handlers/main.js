@@ -105,17 +105,12 @@ app.use((err, req, res, next) => {
 require("../config/cors")(app); // Cors Added
 // require("../app/middleware/auth/auth").verifyKeys(app); // Verify API Keys
 
-// Initialize database connections before mounting routes
-const { initializeMongo, initializePostgreSQL } = require("../config/dbConnect");
+const { initializePostgreSQL } = require("../config/dbConnect");
 
-Promise.all([
-    initializeMongo(),
-    initializePostgreSQL()
-])
+initializePostgreSQL()
     .then(async () => {
-        console.log("All database connections established successfully");
-        
-        // Synchronize PostgreSQL schema after connection is established
+        console.log("PostgreSQL connection established successfully");
+
         try {
             const pgVectorService = require("../app/services/pgVectorService");
             const syncResult = await pgVectorService.syncDatabase();
@@ -126,22 +121,29 @@ Promise.all([
             }
         } catch (syncError) {
             console.warn(`PostgreSQL schema sync error: ${syncError.message}`);
-            // Continue startup even if sync fails
         }
-        
-        // Mount routes after DB connections are established
+
         require("../routes")(app, router);
-        
+
+        try {
+            const retentionService = require("../app/services/retentionService");
+            retentionService.start();
+        } catch (retentionErr) {
+            console.warn(`Retention job failed to start: ${retentionErr.message}`);
+        }
+
         const PORT = process.env.PORT || 3000;
-        
-        server.listen(PORT,(err) => {
-        	if(process.env.NODE_ENV !="prod"){
-        		(!err) ? console.log(`Server running on port ${PORT}. API documentation available at http://localhost:${PORT}/api-docs`) : console.log("Error while running the server!" + err);
-        	}
+
+        server.listen(PORT, (err) => {
+            if (process.env.NODE_ENV != "prod") {
+                (!err)
+                    ? console.log(`Server running on port ${PORT}. API documentation available at http://localhost:${PORT}/api-docs`)
+                    : console.log("Error while running the server!" + err);
+            }
         });
     })
     .catch(err => {
-        console.error("Failed to connect to databases:", err);
+        console.error("Failed to connect to PostgreSQL:", err);
         process.exit(1);
     });
 

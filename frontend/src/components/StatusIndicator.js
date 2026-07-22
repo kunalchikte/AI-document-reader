@@ -1,346 +1,169 @@
 import React from 'react';
-import { 
-  Box, 
-  Typography, 
-  Chip, 
-  Tooltip, 
-  CircularProgress, 
-  Button, 
-  Dialog, 
-  DialogTitle, 
-  DialogContent, 
+import {
+  Box,
+  Typography,
+  Chip,
+  Tooltip,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
   DialogActions,
-  Alert,
-  AlertTitle,
   List,
   ListItem,
   ListItemIcon,
   ListItemText,
-  Divider
+  Divider,
 } from '@mui/material';
-import { 
+import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
-  HourglassEmpty as HourglassEmptyIcon,
   Refresh as RefreshIcon,
-  Settings as SettingsIcon,
   Storage as StorageIcon,
   Layers as LayersIcon,
-  Extension as ExtensionIcon,
-  ArrowDownward as ArrowDownwardIcon
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
 
-const StatusChip = ({ status, label, loading = false, tooltip = '', onClick = null }) => {
-  // Always show success status - optimistic approach
-  const color = 'success';
-  const icon = <CheckCircleIcon fontSize="small" />;
-  
-  /* Legacy code preserved for reference but not used
-  let color;
-  let icon;
-  
-  if (loading) {
-    color = 'default';
-    icon = <CircularProgress size={12} thickness={6} sx={{ mr: 0.5 }} />;
-  } else if (status === true) {
-    color = 'success';
-    icon = <CheckCircleIcon fontSize="small" />;
-  } else {
-    color = 'error';
-    icon = <ErrorIcon fontSize="small" />;
-  }
-  */
-  
-  const chip = (
+const StatusChip = ({ ok, label, tooltip, onClick }) => (
+  <Tooltip title={tooltip || label} arrow>
     <Chip
       label={label}
-      color={color}
       size="small"
-      icon={icon}
       onClick={onClick}
-      sx={{ 
-        fontWeight: 500,
-        '& .MuiChip-icon': { ml: 0.5 },
-        ...(onClick && { cursor: 'pointer' })
+      icon={ok ? <CheckCircleIcon /> : <ErrorIcon />}
+      color={ok ? 'success' : 'error'}
+      variant="outlined"
+      sx={{
+        cursor: onClick ? 'pointer' : 'default',
+        fontWeight: 600,
+        minHeight: 32,
+        '& .MuiChip-icon': { ml: 0.75 },
       }}
     />
-  );
-  
-  const tooltipText = tooltip || `${label} is operational`;
-  
-  return (
-    <Tooltip title={tooltipText} arrow>
-      {chip}
-    </Tooltip>
-  );
-};
+  </Tooltip>
+);
 
-const StatusIndicator = ({ 
+const StatusIndicator = ({
   loading = false,
   ollamaStatus = null,
   ollamaDetails = null,
-  supabaseStatus = null,
-  supabaseDetails = null,
-  onCheckStatus = null
+  postgresStatus = null,
+  postgresDetails = null,
+  onCheckStatus = null,
 }) => {
   const [detailsOpen, setDetailsOpen] = React.useState(false);
-  
-  const getSystemStatusText = () => {
-    if (loading) {
-      return 'Checking system status...';
-    }
-    
-    // If we got a document list or a chat is working, we can assume the system is operational
-    // This is a more optimistic approach that avoids false error messages
-    return 'All systems operational';
-    
-    /* Legacy code preserved for reference but not used
-    if (ollamaStatus === null || supabaseStatus === null) {
-      return 'System status unknown';
-    }
-    
-    // Consider both boolean true and truthy string values like 'healthy'
-    const ollamaWorking = ollamaStatus === true || 
-                         (typeof ollamaStatus === 'string' && ollamaStatus.toLowerCase() === 'healthy');
-                         
-    const supabaseWorking = supabaseStatus === true || 
-                           (typeof supabaseStatus === 'string' && supabaseStatus.toLowerCase() === 'healthy');
-    
-    if (ollamaWorking && supabaseWorking) {
-      return 'All systems operational';
-    }
-    
-    // If we have details, make the message more specific
-    if (!ollamaWorking && !supabaseWorking) {
-      return 'System issues detected';
-    } else if (!ollamaWorking) {
-      return 'Ollama service issue detected';
-    } else {
-      return 'Supabase connection issue detected';
-    }
-    */
-  };
-  
+  const ollamaOk = ollamaStatus === true;
+  const postgresOk = postgresStatus === true;
+  const allOk = ollamaOk && postgresOk;
+
   return (
     <>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          flexWrap: 'wrap',
-          justifyContent: 'space-between',
-          width: '100%',
-          p: 2,
-          bgcolor: 'background.paper',
-          borderRadius: 1,
-          boxShadow: 1
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography 
-            variant="body2" 
-            color="text.secondary"
-            sx={{ mr: 1, display: 'flex', alignItems: 'center' }}
-          >
-            {loading && <HourglassEmptyIcon fontSize="small" sx={{ mr: 0.5 }} />}
-            {getSystemStatusText()}
+      <Box className="status-bar" role="status" aria-live="polite">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+            {loading ? 'Checking services…' : allOk ? 'Systems ready' : 'Service attention needed'}
           </Typography>
-          
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            {ollamaStatus !== null && (
-              <StatusChip 
-                status={ollamaStatus}
-                label="Ollama"
-                loading={loading} 
-                tooltip={ollamaStatus ? 'Ollama is running properly' : 'Ollama is not available'}
-                onClick={() => setDetailsOpen(true)}
-              />
-            )}
-            
-            {supabaseStatus !== null && (
-              <StatusChip
-                status={supabaseStatus}
-                label="Supabase"
-                loading={loading}
-                tooltip={supabaseStatus ? 'Supabase is connected' : 'Supabase connection issue'}
-                onClick={() => setDetailsOpen(true)}
-              />
-            )}
-          </Box>
+          {ollamaStatus !== null && (
+            <StatusChip
+              ok={ollamaOk}
+              label="Ollama"
+              tooltip={ollamaOk ? 'Ollama is reachable' : 'Ollama unavailable'}
+              onClick={() => setDetailsOpen(true)}
+            />
+          )}
+          {postgresStatus !== null && (
+            <StatusChip
+              ok={postgresOk}
+              label="PostgreSQL"
+              tooltip={postgresOk ? 'PostgreSQL + pgvector connected' : 'Database issue'}
+              onClick={() => setDetailsOpen(true)}
+            />
+          )}
         </Box>
-        
+
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
-            variant="text"
-            color="inherit"
             size="small"
-            startIcon={<RefreshIcon />}
-            onClick={onCheckStatus}
-            disabled={loading}
-          >
-            Check Status
-          </Button>
-          
-          <Button
-            variant="text"
-            color="inherit"
-            size="small"
-            startIcon={<SettingsIcon />}
+            startIcon={<InfoIcon />}
             onClick={() => setDetailsOpen(true)}
+            aria-label="View system details"
           >
             Details
           </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={onCheckStatus}
+            disabled={loading}
+            aria-label="Refresh system status"
+          >
+            Refresh
+          </Button>
         </Box>
       </Box>
-      
-      {/* System Details Dialog */}
-      <Dialog 
-        open={detailsOpen} 
-        onClose={() => setDetailsOpen(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>System Status Details</DialogTitle>
-        <DialogContent>
-          {/* Ollama Status */}
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <LayersIcon sx={{ mr: 1 }} /> Ollama Status
-              <StatusChip 
-                status={true}
-                label="Operational"
-                sx={{ ml: 2 }}
-              />
-            </Typography>
-            
-            {ollamaDetails ? (
-              <List dense>
-                <ListItem>
-                  <ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon>
-                  <ListItemText 
-                    primary="Server Status" 
-                    secondary="Ollama service is running properly" 
-                  />
-                </ListItem>
-                
-                {ollamaDetails.models && (
-                  <ListItem>
-                    <ListItemIcon>
-                      <ExtensionIcon color="success" />
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary="Models" 
-                      secondary={
-                        ollamaDetails.models?.models?.length > 0 
-                          ? `${ollamaDetails.models.models.length} models available` 
-                          : "Required models available"
-                      }
-                    />
-                  </ListItem>
-                )}
-                
-                {ollamaDetails.embeddings && (
-                  <ListItem>
-                    <ListItemIcon>
-                      <ExtensionIcon color="success" />
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary="Embeddings" 
-                      secondary="Embedding model available"
-                    />
-                  </ListItem>
-                )}
-              </List>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                System is operational
-              </Typography>
-            )}
 
-            {/* Installation button removed as it's now handled within the status check */}
-          </Box>
-          
-          <Divider sx={{ my: 2 }} />
-          
-          {/* Supabase Status */}
-          <Box>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <StorageIcon sx={{ mr: 1 }} /> Supabase Status
-              <StatusChip 
-                status={true}
-                label="Operational"
-                sx={{ ml: 2 }}
+      <Dialog open={detailsOpen} onClose={() => setDetailsOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+          System status
+        </DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <LayersIcon fontSize="small" color="primary" /> Ollama
+          </Typography>
+          <List dense>
+            <ListItem>
+              <ListItemIcon>
+                {ollamaOk ? <CheckCircleIcon color="success" /> : <ErrorIcon color="error" />}
+              </ListItemIcon>
+              <ListItemText
+                primary="Server"
+                secondary={ollamaDetails?.server?.message || (ollamaOk ? 'Reachable' : 'Unavailable')}
               />
-            </Typography>
-            
-            {supabaseDetails ? (
-              <List dense>
-                <ListItem>
-                  <ListItemIcon>
+            </ListItem>
+          </List>
+
+          <Divider sx={{ my: 1.5 }} />
+
+          <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <StorageIcon fontSize="small" color="primary" /> PostgreSQL
+          </Typography>
+          <List dense>
+            {[
+              ['Connection', postgresDetails?.connection],
+              ['pgvector', postgresDetails?.pgvector],
+              ['Documents table', postgresDetails?.documentsTable],
+              ['Match function', postgresDetails?.matchFunction],
+            ].map(([label, item]) => (
+              <ListItem key={label}>
+                <ListItemIcon>
+                  {item?.status !== false ? (
                     <CheckCircleIcon color="success" />
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary="Connection" 
-                    secondary="Connected to Supabase" 
-                  />
-                </ListItem>
-                
-                <ListItem>
-                  <ListItemIcon>
-                    <CheckCircleIcon color="success" />
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary="pgvector Extension" 
-                    secondary="Extension is available" 
-                  />
-                </ListItem>
-                
-                <ListItem>
-                  <ListItemIcon>
-                    <CheckCircleIcon color="success" />
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary="Documents Table" 
-                    secondary="Table exists and is accessible" 
-                  />
-                </ListItem>
-                
-                <ListItem>
-                  <ListItemIcon>
-                    <CheckCircleIcon color="success" />
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary="Match Function" 
-                    secondary="Vector matching function available" 
-                  />
-                </ListItem>
-              </List>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                System is operational
-              </Typography>
-            )}
-          </Box>
+                  ) : (
+                    <ErrorIcon color="error" />
+                  )}
+                </ListItemIcon>
+                <ListItemText primary={label} secondary={item?.message || '—'} />
+              </ListItem>
+            ))}
+          </List>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ px: 3, py: 2 }}>
           <Button onClick={() => setDetailsOpen(false)}>Close</Button>
-          <Button 
+          <Button
+            variant="contained"
+            startIcon={<RefreshIcon />}
             onClick={() => {
               setDetailsOpen(false);
-              onCheckStatus && onCheckStatus();
-            }} 
-            startIcon={<RefreshIcon />}
-            variant="contained"
+              onCheckStatus?.();
+            }}
           >
-            Refresh Status
+            Refresh status
           </Button>
         </DialogActions>
       </Dialog>
-      
-      {/* Installation dialog removed as it's now handled within the status check API */}
     </>
   );
 };
 
-export default StatusIndicator; 
+export default StatusIndicator;

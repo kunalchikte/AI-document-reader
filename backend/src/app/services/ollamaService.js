@@ -12,7 +12,8 @@ class OllamaService {
      */
     async checkServerStatus(ollamaApiUrl = process.env.OLLAMA_API_URL || 'http://localhost:11434') {
         try {
-            await axios.get(ollamaApiUrl);
+            // /api/tags is the reliable health endpoint (root may not respond)
+            await axios.get(`${ollamaApiUrl}/api/tags`, { timeout: 5000 });
             return { 
                 status: true, 
                 message: 'Ollama server is running'

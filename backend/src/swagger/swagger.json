@@ -343,7 +343,7 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "supabase": {
+                        "postgresql": {
                           "type": "object",
                           "properties": {
                             "success": {
@@ -565,13 +565,13 @@
       }
     },
 
-    "/system/supabase/status": {
+    "/system/postgresql/status": {
       "get": {
-        "summary": "Check Supabase setup status",
+        "summary": "Check PostgreSQL setup status",
         "tags": ["Setup"],
         "responses": {
           "200": {
-            "description": "Supabase status information",
+            "description": "PostgreSQL status information",
             "content": {
               "application/json": {
                 "schema": {
@@ -641,13 +641,13 @@
         }
       }
     },
-    "/system/supabase/setup": {
+    "/system/postgresql/setup": {
       "post": {
-        "summary": "Setup Supabase for vector storage",
+        "summary": "Setup PostgreSQL for vector storage",
         "tags": ["Setup"],
         "responses": {
           "200": {
-            "description": "Supabase setup result",
+            "description": "PostgreSQL setup result",
             "content": {
               "application/json": {
                 "schema": {

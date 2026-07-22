@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+uploads/*
+!uploads/.gitkeep
+.git
+.gitignore
+README.md
+MIGRATION_GUIDE.md
+sample-docs
+test-*
+*.md

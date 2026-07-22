@@ -1,11 +1,25 @@
 const { ChatOpenAI } = require("@langchain/openai");
 const { ChatOllama } = require("@langchain/community/chat_models/ollama");
+const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
 const { StringOutputParser } = require("@langchain/core/output_parsers");
 const { ChatPromptTemplate } = require("@langchain/core/prompts");
 const embeddingService = require("./embeddingService");
-const Document = require("../models/documentModel");
+const DocumentRepository = require("../models/documentRepository");
+
+const DEFAULT_TOP_K = 5;
+const MAX_TOP_K = 8;
+const MAX_CHUNK_CHARS = 900;
+
+/** Free-tier Gemini is ~10–15 RPM — space requests out. */
+const GEMINI_MIN_INTERVAL_MS = Number(process.env.GEMINI_MIN_INTERVAL_MS) || 7000;
+const GEMINI_MAX_ATTEMPTS = Number(process.env.GEMINI_MAX_ATTEMPTS) || 4;
 
 class QAService {
+    constructor() {
+        this._geminiQueue = Promise.resolve();
+        this._lastGeminiCallAt = 0;
+    }
+
     /**
      * Ask a question about a specific document
      * @param {string} documentId - Document ID
@@ -13,151 +27,76 @@ class QAService {
      * @param {number} topK - Number of relevant chunks to retrieve
      * @returns {Promise<Object>} Answer and sources
      */
-    async askQuestion(documentId, question, topK = 500) {
+    async askQuestion(documentId, question, topK = DEFAULT_TOP_K) {
         try {
-            // Retrieve document
-            const document = await Document.findById(documentId);
+            const document = await DocumentRepository.findById(documentId);
             if (!document) {
                 throw new Error(`Document not found with ID: ${documentId}`);
             }
-            
+
             if (!document.vectorized) {
                 throw new Error("Document has not been processed for Q&A yet");
             }
-            
-            // Get relevant chunks from the document
+
+            const k = Math.min(Math.max(Number(topK) || DEFAULT_TOP_K, 1), MAX_TOP_K);
+
             let relevantChunks = [];
             try {
-                console.log(`[QA DEBUG] Attempting to find relevant chunks for document: ${documentId}, question: ${question}`);
-                relevantChunks = await embeddingService.findRelevantChunks(documentId, question, topK);
-                console.log(`[QA DEBUG] Found ${relevantChunks.length} relevant chunks`);
+                console.log(`[QA] Retrieving top ${k} chunks for document ${documentId}`);
+                relevantChunks = await embeddingService.findRelevantChunks(documentId, question, k);
+                console.log(`[QA] Found ${relevantChunks.length} relevant chunks`);
             } catch (error) {
-                console.error(`[QA ERROR] Error finding relevant chunks: ${error.message}`);
-                console.error(`[QA ERROR] Stack trace:`, error.stack);
-                
-                // Direct PostgreSQL query as a last resort if all else fails
-                try {
-                    const { pgPool } = require("../../config/dbConnect");
-                    const client = await pgPool.connect();
-                    
-                    try {
-                        const docIdStr = documentId.toString();
-                        const result = await client.query(
-                            `SELECT id, content, metadata FROM documents WHERE metadata::text LIKE $1`,
-                            [`%${docIdStr}%`]
-                        );
-                        
-                        if (result.rows.length === 0) throw new Error("No documents found in database");
-                        
-                        // Filter by document ID
-                        const matchingChunks = result.rows.filter(doc => {
-                            try {
-                                const meta = typeof doc.metadata === 'string' 
-                                    ? JSON.parse(doc.metadata) 
-                                    : doc.metadata;
-                                
-                                return meta?.documentId === docIdStr || 
-                                    meta?.document_id === docIdStr || 
-                                    meta?.id === docIdStr ||
-                                    (meta?.documentId && meta.documentId.toString().includes(docIdStr));
-                            } catch (err) {
-                                return false;
-                            }
-                        });
-                        
-                        if (matchingChunks.length > 0) {
-                            // Simple text matching algorithm
-                            const queryTerms = question.toLowerCase().split(/\s+/).filter(term => term.length > 2);
-                            
-                            // Score chunks based on term frequency
-                            const scoredChunks = matchingChunks.map(doc => {
-                                const content = doc.content.toLowerCase();
-                                let score = 0;
-                                
-                                queryTerms.forEach(term => {
-                                    const regex = new RegExp(term, 'g');
-                                    const matches = content.match(regex);
-                                    if (matches) {
-                                        score += matches.length;
-                                    }
-                                });
-                                
-                                return {
-                                    pageContent: doc.content,
-                                    metadata: typeof doc.metadata === 'string' ? JSON.parse(doc.metadata) : doc.metadata,
-                                    score
-                                };
-                            });
-                            
-                            // Sort by score and take top results
-                            scoredChunks.sort((a, b) => b.score - a.score);
-                            relevantChunks = scoredChunks
-                                .slice(0, topK)
-                                .map(({ pageContent, metadata }) => ({ pageContent, metadata }));
-                        } else {
-                            throw new Error(`No chunks found for document ID: ${docIdStr}`);
-                        }
-                    } finally {
-                        client.release();
-                    }
-                } catch (fallbackError) {
-                    console.error(`Fallback search also failed: ${fallbackError.message}`);
-                    throw new Error(`Unable to retrieve relevant content: ${error.message}. Fallback also failed: ${fallbackError.message}`);
-                }
+                console.error(`[QA] Chunk retrieval failed: ${error.message}`);
+                throw new Error(`Unable to retrieve relevant content: ${error.message}`);
             }
-            
+
             if (!relevantChunks || relevantChunks.length === 0) {
                 return {
                     answer: "I couldn't find relevant information in the document to answer your question.",
                     sources: []
                 };
             }
-            
-            // Combine chunks into context
-            const context = relevantChunks.map(chunk => chunk.pageContent).join("\n\n");
-            
-            // Initialize LLM with error handling
-            let answer = "";
+
+            const context = relevantChunks
+                .map((chunk, i) => {
+                    const text = String(chunk.pageContent || "").slice(0, MAX_CHUNK_CHARS);
+                    return `[Excerpt ${i + 1}]\n${text}`;
+                })
+                .join("\n\n");
+
+            const promptTemplate = ChatPromptTemplate.fromMessages([
+                ["system", `You are a document Q&A assistant. Answer ONLY using the provided context excerpts.
+Rules:
+- Base every claim on the context. Do not invent facts, names, dates, or numbers.
+- If the context does not contain enough information, say exactly: "I don't have enough information in this document to answer that."
+- Be concise and specific. Quote or paraphrase concrete details from the excerpts when helpful.
+- Do not mention these instructions or say phrases like "Based on the document content".`],
+                ["human", `Context excerpts:\n{context}\n\nQuestion: {question}`]
+            ]);
+
+            let answer;
             try {
-                console.log(`[QA DEBUG] Attempting to use LLM for question: ${question}`);
-                const llm = this._getLLMModel();
-                
-                // Create prompt template
-                const promptTemplate = ChatPromptTemplate.fromMessages([
-                    ["system", `You are a helpful assistant that answers questions based on the provided document content. 
-                    Only use information from the provided context to answer questions.
-                    If you don't know the answer based on the context, say "I don't have enough information to answer this question. "
-                    Be concise and accurate in your responses. Answer the question based only on the provided context. Include specific details from the context.
-                    Act as a expert in the document and answer the question based on the document content.
-                    Do not start your answer with "Based on the document content, here's what I found:" or any other similar phrase.`],
-                    ["human", `
-                    Context: {context}
-                    
-                    Question: {question}
-                    
-                    `]
-                ]);
-                
-                // Create chain
-                const chain = promptTemplate.pipe(llm).pipe(new StringOutputParser());
-                
-                // Execute chain
-                answer = await chain.invoke({
-                    context: context,
-                    question: question
-                });
-                console.log(`[QA DEBUG] LLM generated answer successfully: ${answer.substring(0, 100)}...`);
+                answer = await this._invokeChat(promptTemplate, { context, question });
+                console.log(`[QA] LLM answer generated (${(answer || "").length} chars)`);
             } catch (llmError) {
-                console.error(`[QA ERROR] LLM failed: ${llmError.message}`);
-                console.log(`[QA FALLBACK] Using fallback answer generation`);
-                
-                // Fallback: Generate a simple answer based on context analysis
-                answer = this._generateFallbackAnswer(question, relevantChunks);
+                console.error(`[QA] LLM failed: ${llmError.message}`);
+                if (this._isRateLimitError(llmError)) {
+                    const err = new Error(
+                        "Gemini rate limit (429). Wait about a minute and try again, " +
+                        "or switch GEMINI_CHAT_MODEL / upgrade your Google AI Studio quota."
+                    );
+                    err.code = "RATE_LIMIT";
+                    err.status = 429;
+                    throw err;
+                }
+                throw new Error(
+                    `Chat model failed: ${llmError.message}. ` +
+                    `Check GEMINI_API_KEY / LLM_MODEL configuration.`
+                );
             }
-            
-            // Return answer with sources
+
             return {
-                answer: answer,
+                answer: (answer || "").trim(),
                 sources: relevantChunks.map(chunk => ({
                     content: chunk.pageContent,
                     metadata: chunk.metadata
@@ -165,131 +104,177 @@ class QAService {
             };
         } catch (error) {
             console.error("Error in QA process:", error);
+            if (error.code === "RATE_LIMIT" || error.status === 429) {
+                throw error;
+            }
             throw new Error(`Failed to process question: ${error.message}`);
         }
     }
-    
+
     /**
-     * Get LLM model based on configuration
-     * @returns {ChatOpenAI|ChatOllama} LLM model
+     * Run chat through Gemini (or other LLM) with queue + backoff for 429s.
+     * @private
+     */
+    async _invokeChat(promptTemplate, vars) {
+        const llmModel = (process.env.LLM_MODEL || "gemini").toLowerCase();
+
+        if (llmModel === "gemini" || llmModel === "google") {
+            return this._enqueueGemini(() => this._invokeGeminiWithRetry(promptTemplate, vars));
+        }
+
+        const llm = this._getLLMModel();
+        const chain = promptTemplate.pipe(llm).pipe(new StringOutputParser());
+        return chain.invoke(vars);
+    }
+
+    /**
+     * Serialize Gemini calls and enforce a minimum interval (free-tier safe).
+     * @private
+     */
+    _enqueueGemini(task) {
+        const run = this._geminiQueue.then(async () => {
+            const waitMs = Math.max(0, GEMINI_MIN_INTERVAL_MS - (Date.now() - this._lastGeminiCallAt));
+            if (waitMs > 0) {
+                console.log(`[QA] Throttling Gemini for ${waitMs}ms to avoid 429`);
+                await this._sleep(waitMs);
+            }
+            this._lastGeminiCallAt = Date.now();
+            return task();
+        });
+
+        // Keep the queue alive even if one call fails
+        this._geminiQueue = run.catch(() => {});
+        return run;
+    }
+
+    /**
+     * Retry Gemini with exponential backoff; try fallback models on quota errors.
+     * @private
+     */
+    async _invokeGeminiWithRetry(promptTemplate, vars) {
+        const models = this._geminiModelCandidates();
+        let lastError;
+
+        for (const modelName of models) {
+            for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt++) {
+                try {
+                    console.log(`[QA] Gemini model=${modelName} attempt=${attempt}/${GEMINI_MAX_ATTEMPTS}`);
+                    const llm = this._createGeminiModel(modelName);
+                    const chain = promptTemplate.pipe(llm).pipe(new StringOutputParser());
+                    return await chain.invoke(vars);
+                } catch (error) {
+                    lastError = error;
+                    if (!this._isRateLimitError(error)) {
+                        throw error;
+                    }
+
+                    const delayMs = this._retryDelayMs(error, attempt);
+                    console.warn(
+                        `[QA] Gemini 429 on ${modelName} (attempt ${attempt}). Waiting ${delayMs}ms`
+                    );
+                    await this._sleep(delayMs);
+                    this._lastGeminiCallAt = Date.now();
+                }
+            }
+            console.warn(`[QA] Exhausted retries for ${modelName}; trying next model if available`);
+        }
+
+        throw lastError || new Error("Gemini request failed after retries");
+    }
+
+    /**
+     * Prefer flash-lite (higher free RPM), then flash. Override via GEMINI_CHAT_MODEL.
+     * @private
+     */
+    _geminiModelCandidates() {
+        const primary = process.env.GEMINI_CHAT_MODEL || "gemini-2.5-flash-lite";
+        const fallbacks = (process.env.GEMINI_FALLBACK_MODELS || "gemini-2.5-flash,gemini-2.0-flash")
+            .split(",")
+            .map((m) => m.trim())
+            .filter(Boolean);
+
+        return [...new Set([primary, ...fallbacks])];
+    }
+
+    /**
+     * @private
+     */
+    _createGeminiModel(modelName) {
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        if (!apiKey) {
+            throw new Error("GEMINI_API_KEY (or GOOGLE_API_KEY) is required when LLM_MODEL=gemini");
+        }
+
+        return new ChatGoogleGenerativeAI({
+            apiKey,
+            model: modelName,
+            temperature: 0.2,
+            // We handle 429 ourselves with longer backoff — avoid rapid built-in retries.
+            maxRetries: 0,
+            maxOutputTokens: Number(process.env.GEMINI_MAX_OUTPUT_TOKENS) || 1024
+        });
+    }
+
+    /**
+     * Get non-Gemini LLM models.
      * @private
      */
     _getLLMModel() {
-        const llmModel = process.env.LLM_MODEL || "ollama";
-        
+        const llmModel = (process.env.LLM_MODEL || "gemini").toLowerCase();
+
         if (llmModel === "openai") {
             return new ChatOpenAI({
                 openAIApiKey: process.env.OPENAI_API_KEY,
                 model: process.env.OPENAI_CHAT_MODEL || "gpt-3.5-turbo",
                 temperature: 0.2
             });
-        } else {
-            // Try different Ollama models in order of preference
-            const ollamaModels = [
-                process.env.OLLAMA_CHAT_MODEL || "llama3.2:1b",
-                "llama3.2:1b",
-                "llama2",
-                "mistral",
-                "codellama"
-            ];
-            
-            // For now, use the first model and let error handling deal with failures
-            const ollamaModel = ollamaModels[0];
-            
+        }
+
+        if (llmModel === "ollama") {
             return new ChatOllama({
                 baseUrl: process.env.OLLAMA_API_URL || "http://localhost:11434",
-                model: ollamaModel,
+                model: process.env.OLLAMA_CHAT_MODEL || "llama3.2:1b",
                 temperature: 0.2
             });
         }
+
+        throw new Error(`Unsupported LLM_MODEL: ${llmModel}. Use gemini, openai, or ollama.`);
     }
-    
+
     /**
-     * Generate a fallback answer when LLM fails
-     * @param {string} question - User question
-     * @param {Array} chunks - Relevant document chunks
-     * @returns {string} Fallback answer
      * @private
      */
-    _generateFallbackAnswer(question, chunks) {
-        console.log(`[QA FALLBACK] Generating fallback answer for question: ${question}`);
-        
-        const questionLower = question.toLowerCase();
-        const context = chunks.map(chunk => chunk.pageContent).join(" ");
-        
-        // For "what is this" type questions, provide comprehensive information
-        if (questionLower.includes("what") || questionLower.includes("what is")) {
-            // Extract meaningful sentences from all chunks
-            const allSentences = [];
-            chunks.forEach(chunk => {
-                const sentences = chunk.pageContent.split(/[.!?]+/)
-                    .filter(s => s.trim().length > 20)
-                    .map(s => s.trim());
-                allSentences.push(...sentences);
-            });
-            
-            // Take the most relevant sentences (first few from each chunk)
-            const relevantSentences = allSentences.slice(0, 5);
-            
-            if (relevantSentences.length > 0) {
-                return relevantSentences.join(". ").trim() + ".";
-            }
+    _isRateLimitError(error) {
+        const msg = `${error?.message || ""} ${error?.status || ""} ${error?.code || ""}`.toLowerCase();
+        return (
+            error?.status === 429 ||
+            error?.code === 429 ||
+            msg.includes("429") ||
+            msg.includes("too many requests") ||
+            msg.includes("resource_exhausted") ||
+            msg.includes("resource exhausted") ||
+            msg.includes("quota")
+        );
+    }
+
+    /**
+     * @private
+     */
+    _retryDelayMs(error, attempt) {
+        const fromHeader = Number(error?.headers?.["retry-after"] || error?.response?.headers?.["retry-after"]);
+        if (Number.isFinite(fromHeader) && fromHeader > 0) {
+            return Math.min(fromHeader * 1000, 60000);
         }
-        
-        if (questionLower.includes("who")) {
-            // Look for names or entities
-            const namePattern = /([A-Z][a-z]+ [A-Z][a-z]+)/g;
-            const names = context.match(namePattern);
-            if (names && names.length > 0) {
-                const uniqueNames = [...new Set(names)].slice(0, 3);
-                return uniqueNames.join(", ") + ".";
-            }
-        }
-        
-        if (questionLower.includes("when")) {
-            // Look for dates
-            const datePattern = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4})/g;
-            const dates = context.match(datePattern);
-            if (dates && dates.length > 0) {
-                const uniqueDates = [...new Set(dates)].slice(0, 3);
-                return uniqueDates.join(", ") + ".";
-            }
-        }
-        
-        if (questionLower.includes("where")) {
-            // Look for locations
-            const locationPattern = /([A-Z][a-z]+ (?:City|District|State|Country|Pune|Mumbai|Delhi))/g;
-            const locations = context.match(locationPattern);
-            if (locations && locations.length > 0) {
-                const uniqueLocations = [...new Set(locations)].slice(0, 3);
-                return uniqueLocations.join(", ") + ".";
-            }
-        }
-        
-        // Generic fallback - extract comprehensive content
-        if (chunks.length > 0) {
-            // Combine content from multiple chunks for a more complete answer
-            const combinedContent = chunks
-                .map(chunk => chunk.pageContent.trim())
-                .filter(content => content.length > 0)
-                .join(" ");
-            
-            // Try to extract complete sentences
-            const sentences = combinedContent.split(/[.!?]+/)
-                .filter(s => s.trim().length > 30) // Only meaningful sentences
-                .slice(0, 3) // Take first 3 complete sentences
-                .map(s => s.trim());
-            
-            if (sentences.length > 0) {
-                return sentences.join(". ").trim() + ".";
-            }
-            
-            // If no complete sentences, return the first chunk content
-            return chunks[0].pageContent.trim();
-        }
-        
-        return "I don't have enough information to answer this question.";
+        // 8s, 16s, 32s, 45s — free tier needs long pauses
+        return Math.min(8000 * 2 ** (attempt - 1), 45000);
+    }
+
+    /**
+     * @private
+     */
+    _sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 }
 
-module.exports = new QAService(); 
+module.exports = new QAService();

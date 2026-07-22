@@ -1,26 +1,44 @@
-# Sample .env.local file for local development
-DB_URL=<MONGO_DB_URL>
-DB_NAME=<DB_NAME>
-DB_USERNAME=<DB_USERNAME>
-DB_PASSWORD=<DB_PASSWORD>
+# =============================================================================
+# Backend environment template
+# Copy to backend/.env and fill in values
+#
+# Docker:  PG_HOST=postgres  |  OLLAMA_API_URL=http://ollama:11434
+# Local:   PG_HOST=localhost |  OLLAMA_API_URL=http://localhost:11434
+# =============================================================================
 
 # JWT Secret (replace with a stronger secret in production)
 JWT_SECRET=<SECRET_TOKEN>
+JWT_EXPIRES_IN=7d
+PORT=3000
+NODE_ENV=prod
 
-# Supabase (replace with your actual values)
-SUPABASE_URL=<SUPABASE_URL>
-SUPABASE_PRIVATE_KEY=<SUPABASE_PRIVATE_KEY>
+PG_USER=<POSTGRES_USER>
+PG_HOST=postgres
+PG_DATABASE=<POSTGRES_DB>
+PG_PASSWORD=<POSTGRES_PASSWORD>
+PG_PORT=5432
 
-# LLM Settings
+POSTGRES_USER=<POSTGRES_USER>
+POSTGRES_HOST=postgres
+POSTGRES_DB=<POSTGRES_DB>
+POSTGRES_PASSWORD=<POSTGRES_PASSWORD>
+POSTGRES_PORT=5432
+
+# Embeddings: Ollama only | Chat: Gemini (default)
 EMBEDDING_MODEL=ollama
-LLM_MODEL=ollama
+LLM_MODEL=gemini
+OLLAMA_API_URL=http://ollama:11434
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
-# Ollama Settings (for local deployment)
-OLLAMA_API_URL=https://localhost:1141
-# OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+# Gemini chat (required when LLM_MODEL=gemini)
+GEMINI_API_KEY=<YOUR_GEMINI_API_KEY>
+# flash-lite has higher free-tier RPM; reduce 429s
+GEMINI_CHAT_MODEL=gemini-2.5-flash-lite
+GEMINI_FALLBACK_MODELS=gemini-2.5-flash,gemini-2.0-flash
+GEMINI_MIN_INTERVAL_MS=7000
+
+# Optional fallbacks
 # OLLAMA_CHAT_MODEL=llama3
-EMBEDDING_MODEL=ollama
-OLLAMA_EMBEDDING_MODEL=llama2
-
-# Port for the server
-PORT=3000 
+# OPENAI_API_KEY=
+# OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+# OPENAI_CHAT_MODEL=gpt-3.5-turbo

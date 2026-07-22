@@ -1,29 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Box, 
-  Paper, 
-  TextField, 
-  IconButton, 
-  Typography, 
+import {
+  Box,
+  TextField,
+  IconButton,
+  Typography,
   Avatar,
-  Card,
-  Divider,
   Button,
   Collapse,
-  Tooltip
+  Tooltip,
+  Chip,
+  Stack,
 } from '@mui/material';
-import { 
+import {
   Send as SendIcon,
-  SmartToy as BotIcon,
-  Person as PersonIcon,
+  SmartToyOutlined as BotIcon,
+  PersonOutline as PersonIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Article as ArticleIcon
+  ArticleOutlined as ArticleIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import { documentApi } from '../api';
 import LoadingDots from './LoadingDots';
 import { motion } from 'framer-motion';
+
+const SUGGESTIONS = [
+  'What is this document about?',
+  'Summarize the key points',
+  'List important dates or names',
+];
 
 const ChatInterface = ({ documentId, documentName }) => {
   const [messages, setMessages] = useState([]);
@@ -32,75 +37,97 @@ const ChatInterface = ({ documentId, documentName }) => {
   const [error, setError] = useState(null);
   const [expandedSources, setExpandedSources] = useState({});
   const messagesEndRef = useRef(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    scrollToBottom();
+    setMessages([]);
+    setError(null);
+    setExpandedSources({});
+
+    if (!documentId) return undefined;
+
+    let cancelled = false;
+    const loadHistory = async () => {
+      try {
+        const res = await documentApi.getMessages(documentId);
+        if (cancelled) return;
+        const history = (res.data.data || []).map((m) => ({
+          id: m.id,
+          content: m.content,
+          sender: m.sender || (m.role === 'user' ? 'user' : 'bot'),
+          timestamp: new Date(m.timestamp || m.createdAt),
+          sources: m.sources || [],
+        }));
+        setMessages(history);
+      } catch (err) {
+        console.error('Failed to load chat history:', err);
+      }
+    };
+
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading, expandedSources]);
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!newMessage.trim() || !documentId) return;
+  const ask = async (question) => {
+    if (!question.trim() || !documentId || isLoading) return;
 
-    const question = newMessage.trim();
     setNewMessage('');
     setIsLoading(true);
     setError(null);
 
-    // Add user message to chat
     const userMessage = {
       id: Date.now(),
-      content: question,
+      content: question.trim(),
       sender: 'user',
       timestamp: new Date(),
     };
-    
-    setMessages(prevMessages => [...prevMessages, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // Send API request
-      const response = await documentApi.askQuestion(documentId, question);
-      
-      // Add bot response to chat
-      const botMessage = {
-        id: Date.now() + 1,
-        content: response.data.data.answer,
-        sender: 'bot',
-        timestamp: new Date(),
-        sources: response.data.data.sources
-      };
-      
-      setMessages(prevMessages => [...prevMessages, botMessage]);
+      const response = await documentApi.askQuestion(documentId, question.trim());
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          content: response.data.data.answer,
+          sender: 'bot',
+          timestamp: new Date(),
+          sources: response.data.data.sources,
+        },
+      ]);
     } catch (err) {
       console.error('Error asking question:', err);
       setError('Failed to get an answer. Please try again.');
-      
-      // Add error message
-      const errorMessage = {
-        id: Date.now() + 1,
-        content: 'Sorry, I encountered an error while processing your question.',
-        sender: 'bot',
-        timestamp: new Date(),
-        isError: true
-      };
-      
-      setMessages(prevMessages => [...prevMessages, errorMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          content: 'Sorry, I encountered an error while processing your question.',
+          sender: 'bot',
+          timestamp: new Date(),
+          isError: true,
+        },
+      ]);
     } finally {
       setIsLoading(false);
+      inputRef.current?.focus();
     }
   };
 
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    await ask(newMessage);
+  };
+
   const toggleSourceExpand = (messageId, sourceIndex) => {
-    setExpandedSources(prev => {
-      const key = `${messageId}-${sourceIndex}`;
-      return {
-        ...prev,
-        [key]: !prev[key]
-      };
-    });
+    const key = `${messageId}-${sourceIndex}`;
+    setExpandedSources((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const renderMessage = (message) => {
@@ -109,256 +136,231 @@ const ChatInterface = ({ documentId, documentName }) => {
     return (
       <Box
         key={message.id}
+        component={motion.div}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
         sx={{
           display: 'flex',
           flexDirection: isBot ? 'row' : 'row-reverse',
+          gap: 1.25,
           mb: 2,
-          maxWidth: '90%',
+          maxWidth: { xs: '100%', sm: '92%' },
           alignSelf: isBot ? 'flex-start' : 'flex-end',
         }}
-        component={motion.div}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
       >
         <Avatar
           sx={{
-            bgcolor: isBot ? 'primary.main' : 'secondary.main',
+            bgcolor: isBot ? 'var(--color-accent)' : '#0F172A',
             width: 36,
             height: 36,
-            mr: isBot ? 1 : 0,
-            ml: isBot ? 0 : 1,
+            flexShrink: 0,
           }}
+          aria-hidden
         >
-          {isBot ? <BotIcon /> : <PersonIcon />}
+          {isBot ? <BotIcon fontSize="small" /> : <PersonIcon fontSize="small" />}
         </Avatar>
 
-        <Card
-          variant="outlined"
+        <Box
           sx={{
-            p: 2,
-            maxWidth: '80%',
-            borderRadius: 2,
-            bgcolor: isBot ? 'background.paper' : 'primary.light',
-            color: isBot ? 'text.primary' : 'white',
-            boxShadow: isBot ? 1 : 'none',
-            position: 'relative',
+            px: 2,
+            py: 1.5,
+            maxWidth: '100%',
+            borderRadius: isBot ? '4px 14px 14px 14px' : '14px 4px 14px 14px',
+            bgcolor: isBot ? 'var(--color-surface)' : 'var(--color-accent)',
+            color: isBot ? 'text.primary' : '#fff',
+            border: isBot ? '1px solid var(--color-border)' : 'none',
           }}
         >
-          <Typography
-            component="div"
-            variant="body1"
+          <Box
             sx={{
+              typography: 'body1',
+              fontSize: '0.95rem',
               wordBreak: 'break-word',
-              '& a': {
-                color: isBot ? 'primary.main' : 'inherit',
-                textDecoration: 'underline',
-              },
-              '& pre': {
-                bgcolor: 'rgba(0, 0, 0, 0.05)',
-                p: 1,
+              '& p': { m: 0, mb: 1 },
+              '& p:last-child': { mb: 0 },
+              '& a': { color: isBot ? 'primary.main' : 'inherit' },
+              '& pre, & code': {
+                bgcolor: isBot ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.15)',
                 borderRadius: 1,
-                overflowX: 'auto',
-              },
-              '& code': {
-                bgcolor: 'rgba(0, 0, 0, 0.05)',
-                p: 0.5,
-                borderRadius: 0.5,
+                px: 0.75,
+                py: 0.25,
+                display: 'inline-block',
               },
             }}
           >
             {message.isError ? (
-              <Typography color="error">{message.content}</Typography>
+              <Typography color="error.light">{message.content}</Typography>
             ) : (
               <ReactMarkdown>{message.content}</ReactMarkdown>
             )}
-          </Typography>
+          </Box>
 
-          {message.sources && message.sources.length > 0 && (
-            <Box sx={{ mt: 2 }}>
-              <Divider sx={{ my: 1 }} />
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                <ArticleIcon fontSize="small" sx={{ mr: 0.5 }} />
-                Sources:
+          {message.sources?.length > 0 && (
+            <Box sx={{ mt: 1.5, pt: 1.25, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1, fontWeight: 600 }}
+              >
+                <ArticleIcon sx={{ fontSize: 14 }} /> Sources
               </Typography>
               {message.sources.map((source, sourceIndex) => {
                 const sourceKey = `${message.id}-${sourceIndex}`;
                 const isExpanded = expandedSources[sourceKey];
-                
                 return (
-                  <Card 
-                    key={sourceIndex} 
-                    variant="outlined" 
-                    sx={{ 
-                      mb: 1, 
-                      p: 1, 
-                      bgcolor: 'rgba(0, 0, 0, 0.02)',
-                      borderColor: 'rgba(0, 0, 0, 0.1)'
+                  <Box
+                    key={sourceIndex}
+                    sx={{
+                      mb: 1,
+                      p: 1,
+                      borderRadius: 1.5,
+                      bgcolor: '#F8FAFC',
+                      border: '1px solid',
+                      borderColor: 'divider',
                     }}
                   >
-                    <Box 
-                      sx={{ 
-                        display: 'flex', 
+                    <Box
+                      sx={{
+                        display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        minHeight: 36,
                       }}
                       onClick={() => toggleSourceExpand(message.id, sourceIndex)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleSourceExpand(message.id, sourceIndex);
+                        }
+                      }}
+                      aria-expanded={!!isExpanded}
                     >
-                      <Typography variant="caption" fontWeight={500}>
-                        {source.metadata?.page ? `Page ${source.metadata.page}` : `Source ${sourceIndex + 1}`}
+                      <Typography variant="caption" fontWeight={600}>
+                        {source.metadata?.page
+                          ? `Page ${source.metadata.page}`
+                          : `Excerpt ${sourceIndex + 1}`}
                       </Typography>
-                      <Tooltip title={isExpanded ? "Hide source" : "Show source"}>
-                        <IconButton size="small">
-                          {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                        </IconButton>
-                      </Tooltip>
+                      <IconButton size="small" aria-label={isExpanded ? 'Hide source' : 'Show source'}>
+                        {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                      </IconButton>
                     </Box>
                     <Collapse in={isExpanded}>
-                      <Typography 
-                        variant="body2" 
-                        sx={{ 
-                          mt: 1, 
-                          p: 1, 
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          mt: 0.5,
+                          p: 1,
                           bgcolor: 'background.paper',
                           borderRadius: 1,
                           fontSize: '0.8rem',
-                          maxHeight: '150px',
-                          overflow: 'auto'
+                          maxHeight: 160,
+                          overflow: 'auto',
+                          color: 'text.secondary',
                         }}
                       >
                         {source.content}
                       </Typography>
                     </Collapse>
-                  </Card>
+                  </Box>
                 );
               })}
             </Box>
           )}
 
-          <Typography 
-            variant="caption" 
-            color={isBot ? "text.secondary" : "rgba(255,255,255,0.7)"}
-            sx={{ 
-              position: 'absolute',
-              bottom: 4,
-              right: 8,
-              fontSize: '0.7rem'
+          <Typography
+            variant="caption"
+            sx={{
+              display: 'block',
+              mt: 1,
+              textAlign: 'right',
+              opacity: 0.65,
+              fontSize: '0.68rem',
             }}
           >
-            {new Date(message.timestamp).toLocaleTimeString()}
+            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Typography>
-        </Card>
+        </Box>
       </Box>
     );
   };
 
   return (
-    <Paper
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        borderRadius: 3,
-        overflow: 'hidden',
-        boxShadow: 3,
-      }}
-    >
-      <Box
-        sx={{
-          p: 2,
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          bgcolor: 'background.paper',
-          display: 'flex',
-          alignItems: 'center',
-        }}
-      >
-        <BotIcon color="primary" sx={{ mr: 1 }} />
-        <Typography variant="subtitle1" fontWeight={600}>
-          Chat with: {documentName || 'Document'}
-        </Typography>
+    <Box className="panel chat-panel" sx={{ height: '100%' }}>
+      <Box className="panel-header">
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="subtitle1" noWrap>
+            Chat
+          </Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {documentName || 'Document'}
+          </Typography>
+        </Box>
+        <Chip size="small" label="RAG" color="primary" variant="outlined" />
       </Box>
 
       <Box
+        className="panel-body"
         sx={{
-          flex: 1,
-          p: 2,
-          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: '#f5f7fb',
+          bgcolor: '#F8FAFC',
+          flex: 1,
         }}
       >
         {messages.length === 0 ? (
-          <Box
-            sx={{
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              color: 'text.secondary',
-            }}
-          >
-            <BotIcon sx={{ fontSize: 60, mb: 2, color: 'primary.main', opacity: 0.6 }} />
-            <Typography variant="body1" textAlign="center">
-              Ask questions about the document.
+          <Box sx={{ my: 'auto', py: 2 }}>
+            <Typography variant="h6" sx={{ fontFamily: 'var(--font-display)', mb: 1 }}>
+              Ask anything about this file
             </Typography>
-            <Typography variant="body2" textAlign="center" sx={{ mt: 1, maxWidth: '80%' }}>
-              The AI will provide answers based on the document content.
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2, maxWidth: 420 }}>
+              Answers are grounded in the uploaded document. Try one of these to start:
             </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={1}>
+              {SUGGESTIONS.map((q) => (
+                <Chip
+                  key={q}
+                  label={q}
+                  clickable
+                  onClick={() => ask(q)}
+                  disabled={isLoading}
+                  sx={{ maxWidth: '100%', height: 'auto', py: 1, '& .MuiChip-label': { whiteSpace: 'normal' } }}
+                />
+              ))}
+            </Stack>
           </Box>
         ) : (
-          messages.map(message => renderMessage(message))
+          messages.map((message) => renderMessage(message))
         )}
 
         {isLoading && (
-          <Box
-            sx={{
-              display: 'flex',
-              mb: 2,
-              alignSelf: 'flex-start',
-              maxWidth: '80%',
-            }}
-            component={motion.div}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-          >
-            <Avatar
-              sx={{
-                bgcolor: 'primary.main',
-                width: 36,
-                height: 36,
-                mr: 1,
-              }}
-            >
-              <BotIcon />
+          <Box sx={{ display: 'flex', gap: 1.25, alignSelf: 'flex-start', mb: 1 }}>
+            <Avatar sx={{ bgcolor: 'var(--color-accent)', width: 36, height: 36 }}>
+              <BotIcon fontSize="small" />
             </Avatar>
-            <Card
-              variant="outlined"
+            <Box
               sx={{
-                p: 2,
-                borderRadius: 2,
+                px: 2,
+                py: 1.5,
+                borderRadius: '4px 14px 14px 14px',
+                border: '1px solid',
+                borderColor: 'divider',
                 bgcolor: 'background.paper',
-                boxShadow: 1,
               }}
             >
               <LoadingDots text="Thinking" />
-            </Card>
+            </Box>
           </Box>
         )}
 
         {error && (
-          <Typography
-            color="error"
-            variant="body2"
-            sx={{ textAlign: 'center', mt: 2, mb: 2 }}
-          >
+          <Typography color="error" variant="body2" role="alert" sx={{ textAlign: 'center', mb: 1 }}>
             {error}
           </Typography>
         )}
-        
         <div ref={messagesEndRef} />
       </Box>
 
@@ -366,49 +368,55 @@ const ChatInterface = ({ documentId, documentName }) => {
         component="form"
         onSubmit={handleSendMessage}
         sx={{
-          p: 2,
+          p: { xs: 1.5, sm: 2 },
           borderTop: '1px solid',
           borderColor: 'divider',
-          bgcolor: 'background.paper',
           display: 'flex',
+          gap: 1,
+          alignItems: 'center',
+          bgcolor: 'background.paper',
+          pb: { xs: 'calc(12px + var(--safe-bottom))', sm: 2 },
         }}
       >
         <TextField
+          inputRef={inputRef}
           fullWidth
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Ask a question about this document..."
+          placeholder="Ask a question…"
           variant="outlined"
           size="small"
           disabled={isLoading || !documentId}
-          InputProps={{
-            sx: {
-              borderRadius: 30,
-              bgcolor: 'background.default',
-              '& .MuiOutlinedInput-notchedOutline': {
-                borderColor: 'rgba(0, 0, 0, 0.1)',
-              },
-            },
+          inputProps={{ 'aria-label': 'Question about the document' }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              ask(newMessage);
+            }
           }}
         />
-        <Button
-          type="submit"
-          variant="contained"
-          color="primary"
-          disabled={!newMessage.trim() || isLoading || !documentId}
-          sx={{
-            ml: 1,
-            borderRadius: 30,
-            minWidth: 'auto',
-            px: 2,
-          }}
-          endIcon={<SendIcon />}
-        >
-          Send
-        </Button>
+        <Tooltip title="Send">
+          <span>
+            <IconButton
+              type="submit"
+              color="primary"
+              disabled={!newMessage.trim() || isLoading || !documentId}
+              aria-label="Send question"
+              sx={{
+                bgcolor: 'primary.main',
+                color: '#fff',
+                borderRadius: 2,
+                '&:hover': { bgcolor: 'primary.dark' },
+                '&.Mui-disabled': { bgcolor: 'action.disabledBackground', color: 'action.disabled' },
+              }}
+            >
+              <SendIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Box>
-    </Paper>
+    </Box>
   );
 };
 
-export default ChatInterface; 
+export default ChatInterface;

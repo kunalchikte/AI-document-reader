@@ -3,9 +3,12 @@ const fs = require("fs");
 const fileService = require("../services/fileService");
 const embeddingService = require("../services/embeddingService");
 const qaService = require("../services/qaService");
-const Document = require("../models/documentModel");
+const DocumentRepository = require("../models/documentRepository");
+const ChatRepository = require("../models/chatRepository");
+const RetentionService = require("../services/retentionService");
 
-// Helper function for enhanced error logging
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const logError = (functionName, error, additionalInfo = {}) => {
     const timestamp = new Date().toISOString();
     console.error(`[${timestamp}] ERROR in ${functionName}:`, error.message);
@@ -17,336 +20,334 @@ const logError = (functionName, error, additionalInfo = {}) => {
     }
 };
 
-/**
- * Upload a document
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
 exports.uploadDocument = async (req, res) => {
-    const functionName = 'uploadDocument';
-    
+    const functionName = "uploadDocument";
+
     try {
-        // Check if file was uploaded
         if (!req.file) {
             return res.status(400).json({
                 status: 400,
                 msg: "No file uploaded",
-                data: null
+                data: null,
             });
         }
 
         const { filename, originalname, path: filePath, size } = req.file;
-        
-        // Determine file type from extension
+
         let fileType;
         try {
             fileType = fileService.getFileTypeFromExtension(originalname);
         } catch (error) {
-            // Delete the uploaded file
             fs.unlinkSync(filePath);
             logError(functionName, error, { filename, originalname });
             return res.status(400).json({
                 status: 400,
                 msg: error.message,
-                data: null
+                data: null,
             });
         }
 
-        // Create document record
         const document = await fileService.createDocument({
             filename,
             originalName: originalname,
             filePath,
             fileType,
             size,
-            userId: req.user ? req.user._id : null
+            userId: req.user.id,
         });
 
         return res.status(200).json({
             status: 200,
             msg: "Document uploaded successfully",
             data: {
-                documentId: document._id,
+                documentId: document.id,
+                _id: document.id,
+                id: document.id,
                 filename: document.originalName,
-                fileType: document.fileType
-            }
+                fileType: document.fileType,
+                expiresAt: document.expiresAt,
+            },
         });
     } catch (error) {
-        logError(functionName, error, { 
-            file: req.file ? { 
-                name: req.file.originalname, 
-                size: req.file.size 
-            } : 'No file' 
+        logError(functionName, error, {
+            file: req.file
+                ? { name: req.file.originalname, size: req.file.size }
+                : "No file",
         });
-        
+
         return res.status(500).json({
             status: 500,
             msg: `Error uploading document: ${error.message}`,
-            data: null
+            data: null,
         });
     }
 };
 
-/**
- * Process a document for embeddings
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
 exports.processDocument = async (req, res) => {
-    const functionName = 'processDocument';
-    
+    const functionName = "processDocument";
+
     try {
         const { documentId } = req.params;
-        
-        // Get document
-        const document = await Document.findById(documentId);
+        const document = await DocumentRepository.findById(documentId, req.user.id);
+
         if (!document) {
             return res.status(404).json({
                 status: 404,
                 msg: "Document not found",
-                data: null
+                data: null,
             });
         }
-        
-        // Extract text from document
+
         const text = await fileService.extractTextFromFile(document.filePath, document.fileType);
-        
-        // Create embeddings
         const result = await embeddingService.createEmbeddings(documentId, text);
-        
+
         return res.status(200).json({
             status: 200,
             msg: "Document processed successfully",
             data: {
                 documentId,
                 chunks: result.chunks,
-                collection: result.collectionName
-            }
+                collection: result.collectionName,
+            },
         });
     } catch (error) {
         logError(functionName, error, { documentId: req.params.documentId });
-        
+
         return res.status(500).json({
             status: 500,
             msg: `Error processing document: ${error.message}`,
-            data: null
+            data: null,
         });
     }
 };
 
-/**
- * Ask a question about a document
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
 exports.askQuestion = async (req, res) => {
-    const functionName = 'askQuestion';
-    
+    const functionName = "askQuestion";
+
     try {
         const { documentId } = req.params;
         const { question, topK } = req.body;
-        
+
         if (!question) {
             return res.status(400).json({
                 status: 400,
                 msg: "Question is required",
-                data: null
+                data: null,
             });
         }
-        
-        // Validate that documentId is a valid MongoDB ObjectId
-        if (!documentId.match(/^[0-9a-fA-F]{24}$/)) {
+
+        if (!UUID_REGEX.test(documentId)) {
             return res.status(200).json({
                 status: 200,
                 msg: "Question processed",
                 data: {
                     answer: "The document ID you provided appears to be invalid. Please check that you're using a valid document ID.",
-                    sources: []
-                }
+                    sources: [],
+                },
             });
         }
-        
+
+        const document = await DocumentRepository.findById(documentId, req.user.id);
+        if (!document) {
+            return res.status(404).json({
+                status: 404,
+                msg: "Document not found",
+                data: null,
+            });
+        }
+
         try {
-            // Get answer
+            await ChatRepository.create({
+                documentId,
+                userId: req.user.id,
+                role: "user",
+                content: question,
+            });
+
             const result = await qaService.askQuestion(documentId, question, topK || 5);
-            
+
+            await ChatRepository.create({
+                documentId,
+                userId: req.user.id,
+                role: "assistant",
+                content: result.answer,
+                sources: result.sources || [],
+            });
+
             return res.status(200).json({
                 status: 200,
                 msg: "Question answered successfully",
-                data: result
+                data: result,
             });
         } catch (qaError) {
-            // Log the error but don't expose internal details to the client
-            logError(functionName, qaError, { 
+            logError(functionName, qaError, {
                 documentId: req.params.documentId,
-                question: req.body ? req.body.question : 'No question'
+                question: req.body ? req.body.question : "No question",
             });
-            
+
             let userMessage = "I'm having trouble retrieving information from this document.";
-            
-            if (qaError.message.includes("Document not found")) {
+            let httpStatus = 200;
+            let responseStatus = 200;
+
+            if (qaError.code === "RATE_LIMIT" || qaError.status === 429 || /429|rate limit|resource.?exhausted|quota/i.test(qaError.message || "")) {
+                httpStatus = 429;
+                responseStatus = 429;
+                userMessage =
+                    "Gemini is rate-limited right now (too many requests). Please wait about a minute and try again.";
+            } else if (qaError.message.includes("Document not found")) {
                 userMessage = "I couldn't find the document you're referring to. Please check that the document ID is correct.";
             } else if (qaError.message.includes("not been vectorized") || qaError.message.includes("not been processed")) {
-                userMessage = "This document hasn't been processed for questions yet. Please process the document first using the /process endpoint.";
+                userMessage = "This document hasn't been processed for questions yet. Please process the document first.";
             } else if (qaError.message.includes("No chunks found") || qaError.message.includes("No document chunks found")) {
                 userMessage = "I couldn't find any content in this document. The document may be empty or may not have been properly processed.";
             }
-            
-            // Return a helpful message to the user with a 200 status code
-            return res.status(200).json({
-                status: 200,
-                msg: "Question processed with limited information",
+
+            await ChatRepository.create({
+                documentId,
+                userId: req.user.id,
+                role: "assistant",
+                content: userMessage,
+                sources: [],
+            }).catch(() => {});
+
+            return res.status(httpStatus).json({
+                status: responseStatus,
+                msg: responseStatus === 429 ? "Rate limited" : "Question processed with limited information",
                 data: {
                     answer: userMessage,
-                    sources: []
-                }
+                    sources: [],
+                },
             });
         }
     } catch (error) {
-        logError(functionName, error, { 
+        logError(functionName, error, {
             documentId: req.params.documentId,
-            question: req.body ? req.body.question : 'No question'
+            question: req.body ? req.body.question : "No question",
         });
-        
-        // Return a user-friendly message with a 200 status code
+
         return res.status(200).json({
             status: 200,
             msg: "Question processed with errors",
             data: {
                 answer: "I encountered an unexpected error while trying to answer your question. Please try again or contact support if the issue persists.",
-                sources: []
-            }
+                sources: [],
+            },
         });
     }
 };
 
-/**
- * Get document list
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
-exports.getDocuments = async (req, res) => {
-    const functionName = 'getDocuments';
-    
+exports.getMessages = async (req, res) => {
     try {
-        // Get documents (non-deleted)
-        const documents = await Document.find({ isDeleted: false })
-            .sort({ createdAt: -1 })
-            .select("_id originalName fileType vectorized createdAt");
-        
+        const { documentId } = req.params;
+        const document = await DocumentRepository.findById(documentId, req.user.id);
+
+        if (!document) {
+            return res.status(404).json({
+                status: 404,
+                msg: "Document not found",
+                data: null,
+            });
+        }
+
+        const messages = await ChatRepository.findByDocument(documentId, req.user.id);
+
+        return res.status(200).json({
+            status: 200,
+            msg: "Messages retrieved successfully",
+            data: messages,
+        });
+    } catch (error) {
+        logError("getMessages", error, { documentId: req.params.documentId });
+        return res.status(500).json({
+            status: 500,
+            msg: `Error retrieving messages: ${error.message}`,
+            data: null,
+        });
+    }
+};
+
+exports.getDocuments = async (req, res) => {
+    const functionName = "getDocuments";
+
+    try {
+        const documents = await DocumentRepository.findAll(req.user.id);
+
         return res.status(200).json({
             status: 200,
             msg: "Documents retrieved successfully",
-            data: documents
+            data: documents,
         });
     } catch (error) {
         logError(functionName, error);
-        
+
         return res.status(500).json({
             status: 500,
             msg: `Error retrieving documents: ${error.message}`,
-            data: null
+            data: null,
         });
     }
 };
 
-/**
- * Get document by ID
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
 exports.getDocumentById = async (req, res) => {
-    const functionName = 'getDocumentById';
-    
+    const functionName = "getDocumentById";
+
     try {
         const { documentId } = req.params;
-        
-        // Get document
-        const document = await Document.findById(documentId);
-        if (!document || document.isDeleted) {
+        const document = await DocumentRepository.findById(documentId, req.user.id);
+
+        if (!document) {
             return res.status(404).json({
                 status: 404,
                 msg: "Document not found",
-                data: null
+                data: null,
             });
         }
-        
+
         return res.status(200).json({
             status: 200,
             msg: "Document retrieved successfully",
-            data: {
-                _id: document._id,
-                originalName: document.originalName,
-                fileType: document.fileType,
-                vectorized: document.vectorized,
-                createdAt: document.createdAt,
-                updatedAt: document.updatedAt,
-                metadata: document.metadata
-            }
+            data: document,
         });
     } catch (error) {
         logError(functionName, error, { documentId: req.params.documentId });
-        
+
         return res.status(500).json({
             status: 500,
             msg: `Error retrieving document: ${error.message}`,
-            data: null
+            data: null,
         });
     }
 };
 
-/**
- * Delete document
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
 exports.deleteDocument = async (req, res) => {
-    const functionName = 'deleteDocument';
-    
+    const functionName = "deleteDocument";
+
     try {
         const { documentId } = req.params;
-        
-        // Get document
-        const document = await Document.findById(documentId);
-        if (!document || document.isDeleted) {
+        const document = await DocumentRepository.findById(documentId, req.user.id);
+
+        if (!document) {
             return res.status(404).json({
                 status: 404,
                 msg: "Document not found",
-                data: null
+                data: null,
             });
         }
-        
-        // Soft delete
-        document.isDeleted = true;
-        await document.save();
-        
-        // Try to delete the file
-        try {
-            if (fs.existsSync(document.filePath)) {
-                fs.unlinkSync(document.filePath);
-            }
-        } catch (err) {
-            console.error(`[${new Date().toISOString()}] Error deleting file:`, err);
-        }
-        
+
+        await RetentionService.purgeDocument(document);
+
         return res.status(200).json({
             status: 200,
             msg: "Document deleted successfully",
-            data: null
+            data: null,
         });
     } catch (error) {
         logError(functionName, error, { documentId: req.params.documentId });
-        
+
         return res.status(500).json({
             status: 500,
             msg: `Error deleting document: ${error.message}`,
-            data: null
+            data: null,
         });
     }
-}; 
+};

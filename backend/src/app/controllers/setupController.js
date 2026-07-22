@@ -2,7 +2,6 @@ const pgVectorService = require("../services/pgVectorService");
 const ollamaService = require("../services/ollamaService");
 const fs = require("fs");
 const path = require("path");
-const { exec } = require("child_process");
 
 /**
  * Initialize the application
@@ -79,14 +78,19 @@ exports.initializeApp = async (req, res) => {
 exports.getStatus = async (req, res) => {
     try {
         // Get configuration
+        const llmModel = process.env.LLM_MODEL || "gemini";
+        const embeddingModel = process.env.EMBEDDING_MODEL || "ollama";
         const config = {
-            embeddingModel: process.env.EMBEDDING_MODEL || "openai",
-            llmModel: process.env.LLM_MODEL || "openai",
-            usingOllama: (process.env.EMBEDDING_MODEL === "ollama" || process.env.LLM_MODEL === "ollama"),
-            usingOpenAI: (process.env.EMBEDDING_MODEL === "openai" || process.env.LLM_MODEL === "openai"),
+            embeddingModel,
+            llmModel,
+            usingOllama: embeddingModel === "ollama" || llmModel === "ollama",
+            usingGemini: llmModel === "gemini" || llmModel === "google",
+            usingOpenAI: embeddingModel === "openai" || llmModel === "openai",
+            geminiChatModel: process.env.GEMINI_CHAT_MODEL || "gemini-2.5-flash-lite",
+            geminiConfigured: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
             ollamaApiUrl: process.env.OLLAMA_API_URL || "http://localhost:11434",
-            ollamaEmbeddingModel: process.env.OLLAMA_EMBEDDING_MODEL || "llama2",
-            ollamaChatModel: process.env.OLLAMA_CHAT_MODEL || "llama2"
+            ollamaEmbeddingModel: process.env.OLLAMA_EMBEDDING_MODEL || "nomic-embed-text",
+            ollamaChatModel: process.env.OLLAMA_CHAT_MODEL || "llama3"
         };
         
         return res.status(200).json({
@@ -107,75 +111,29 @@ exports.getStatus = async (req, res) => {
 };
 
 /**
- * Check Ollama setup status and run installation script if needed
+ * Check Ollama setup status
  * @param {Object} req - Express request object
  * @param {Object} res - Express response object
  * @returns {Promise<void>}
  */
 exports.checkOllamaStatus = async (req, res) => {
     try {
-        // Get Ollama API URL from request or environment
         const ollamaApiUrl = req.query.api_url || process.env.OLLAMA_API_URL || "http://localhost:11434";
-        
-        // Execute the install-ollama.js script directly
-        return new Promise((resolve) => {
-            const projectRoot = path.resolve(__dirname, '../../../');
-            const scriptPath = path.join(projectRoot, 'scripts', 'install-ollama.js');
-            
-            console.log(`Running Ollama installation script: ${scriptPath}`);
-            
-            const installProcess = exec(`node "${scriptPath}"`, { cwd: projectRoot });
-            
-            let stdoutData = '';
-            let stderrData = '';
-            
-            installProcess.stdout.on('data', (data) => {
-                stdoutData += data;
-                console.log(data); // Log output in real-time
-            });
-            
-            installProcess.stderr.on('data', (data) => {
-                stderrData += data;
-                console.error(data); // Log errors in real-time
-            });
-            
-            installProcess.on('close', async (code) => {
-                // Check Ollama status after script execution
-                const ollamaStatus = await ollamaService.checkStatus(ollamaApiUrl);
-                
-                if (code === 0 && ollamaStatus.server.status) {
-                    resolve(res.status(200).json({
-                        status: 200,
-                        msg: "Ollama status checked and installation completed successfully",
-                        data: {
-                            status: "healthy",
-                            ollamaStatus: ollamaStatus,
-                            scriptOutput: stdoutData,
-                            exitCode: code
-                        }
-                    }));
-                } else {
-                    resolve(res.status(200).json({
-                        status: 200,
-                        msg: "Ollama status checked but installation has issues",
-                        data: {
-                            status: "unhealthy",
-                            ollamaStatus: ollamaStatus,
-                            scriptOutput: stdoutData,
-                            scriptError: stderrData,
-                            exitCode: code
-                        }
-                    }));
-                }
-            });
+        const ollamaStatus = await ollamaService.checkStatus(ollamaApiUrl);
+
+        return res.status(200).json({
+            status: 200,
+            msg: ollamaStatus.server.status ? "Ollama is reachable" : "Ollama is unavailable",
+            data: ollamaStatus
         });
     } catch (error) {
         return res.status(500).json({
             status: 500,
             msg: `Error checking Ollama status: ${error.message}`,
             data: {
-                status: "unhealthy",
-                error: error.message
+                server: { status: false, message: error.message },
+                models: { status: false, message: error.message, models: [] },
+                embeddings: { status: false, message: error.message }
             }
         });
     }
@@ -318,128 +276,6 @@ exports.syncPostgreSQL = async (req, res) => {
         return res.status(500).json({
             status: 500,
             msg: `Error synchronizing database schema: ${error.message}`,
-            data: null
-        });
-    }
-};
-
-/**
- * Debug PostgreSQL documents table
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
-exports.debugPostgreSQL = async (req, res) => {
-    try {
-        const { pgPool } = require("../../config/dbConnect");
-        const client = await pgPool.connect();
-        
-        try {
-            // Get document count
-            const countResult = await client.query('SELECT COUNT(*) as total FROM documents');
-            
-            // Get sample documents with metadata
-            const sampleResult = await client.query(`
-                SELECT id, 
-                       LEFT(content, 100) as content_preview,
-                       metadata,
-                       created_at
-                FROM documents 
-                ORDER BY created_at DESC 
-                LIMIT 5
-            `);
-            
-            // Get unique document IDs from metadata
-            const metadataResult = await client.query(`
-                SELECT DISTINCT 
-                    metadata->>'documentId' as document_id,
-                    metadata->>'source' as source,
-                    COUNT(*) as chunk_count
-                FROM documents 
-                WHERE metadata->>'documentId' IS NOT NULL
-                GROUP BY metadata->>'documentId', metadata->>'source'
-                ORDER BY chunk_count DESC
-            `);
-            
-            return res.status(200).json({
-                status: 200,
-                msg: "PostgreSQL debug information",
-                data: {
-                    totalDocuments: parseInt(countResult.rows[0].total),
-                    sampleDocuments: sampleResult.rows,
-                    documentMetadata: metadataResult.rows
-                }
-            });
-        } finally {
-            client.release();
-        }
-    } catch (error) {
-        return res.status(500).json({
-            status: 500,
-            msg: `Error debugging PostgreSQL: ${error.message}`,
-            data: null
-        });
-    }
-};
-
-/**
- * Test document lookup by ID
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @returns {Promise<void>}
- */
-exports.testDocumentLookup = async (req, res) => {
-    try {
-        const { documentId } = req.params;
-        const { pgPool } = require("../../config/dbConnect");
-        const client = await pgPool.connect();
-        
-        try {
-            // Test direct query
-            const directQuery = await client.query(
-                `SELECT id, LEFT(content, 200) as content_preview, metadata FROM documents WHERE metadata->>'documentId' = $1 OR metadata->>'document_id' = $1 OR metadata->>'id' = $1`,
-                [documentId]
-            );
-            
-            // Test vector search function
-            let vectorTest = null;
-            try {
-                const testEmbedding = `[${Array(1536).fill(0.1).join(',')}]`;
-                const vectorQuery = await client.query(
-                    `SELECT id, LEFT(content, 100) as content_preview, metadata FROM match_documents($1::vector, 0.1, 5)`,
-                    [testEmbedding]
-                );
-                vectorTest = {
-                    success: true,
-                    results: vectorQuery.rows.length,
-                    sample: vectorQuery.rows.slice(0, 2)
-                };
-            } catch (error) {
-                vectorTest = {
-                    success: false,
-                    error: error.message
-                };
-            }
-            
-            return res.status(200).json({
-                status: 200,
-                msg: "Document lookup test results",
-                data: {
-                    documentId,
-                    directQuery: {
-                        results: directQuery.rows.length,
-                        data: directQuery.rows
-                    },
-                    vectorTest
-                }
-            });
-        } finally {
-            client.release();
-        }
-    } catch (error) {
-        return res.status(500).json({
-            status: 500,
-            msg: `Error testing document lookup: ${error.message}`,
             data: null
         });
     }

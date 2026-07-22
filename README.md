@@ -1,19 +1,17 @@
 # AI Document Reader
 
-A full-stack application for document-based Q&A using LangChain.js, Supabase for vector storage, and React.js frontend.
+A full-stack application for document-based Q&A using LangChain.js, PostgreSQL with pgvector, and a React frontend.
 
 ## Features
 
 - **Document Upload**: Support for PDF, DOCX, XLSX, and TXT files
-- **Document Processing**: Extract text, chunk it, and store embeddings in Supabase pgvector
+- **Document Processing**: Extract text, chunk it, and store embeddings in PostgreSQL pgvector
 - **Question & Answering**: Ask questions about documents and get contextually relevant answers
 - **Multiple LLM Support**: Use either OpenAI or local Ollama models for embeddings and Q&A
 - **User Interface**: Responsive web interface for document management and Q&A
 - **Source References**: View document sources in answers
 
 ## Project Structure
-
-This repository contains both the frontend and backend components:
 
 - `/frontend`: React.js application with Material UI
 - `/backend`: Node.js + Express API with LangChain.js integration
@@ -23,9 +21,8 @@ This repository contains both the frontend and backend components:
 ### Backend
 - Node.js + Express
 - LangChain.js
-- Supabase (Postgres + pgvector)
+- PostgreSQL + pgvector (document metadata and vector chunks)
 - OpenAI or Ollama for embeddings & LLM
-- MongoDB for document metadata storage
 - Multer for file uploads
 - Swagger for API documentation
 
@@ -39,127 +36,120 @@ This repository contains both the frontend and backend components:
 ## Prerequisites
 
 - Node.js >= 16
-- MongoDB
-- Supabase account with pgvector extension enabled
+- PostgreSQL 14+ with [pgvector](https://github.com/pgvector/pgvector) extension
 - OpenAI API key or Ollama running locally
 
 ## Getting Started
 
 ### Backend Setup
 
-1. Configure Supabase:
-   - Enable the pgvector extension in your Supabase project
-   - Create a "documents" table with the schema as described in the backend setup instructions
-   - Create an RLS policy to allow access to the table
-
-2. Set up environment variables in the backend:
-   ```
-   cd backend
-   cp .env.example .env
-   ```
-   Edit the `.env` file with your configuration details:
-   ```
-   # Database
-   DB_URL=mongodb://localhost:27017
-   DB_NAME=ai_document_reader
-   DB_USERNAME=
-   DB_PASSWORD=
-   
-   # Supabase
-   SUPABASE_URL=https://your-supabase-url.supabase.co
-   SUPABASE_PRIVATE_KEY=your-supabase-private-key
-   
-   # LLM Settings
-   EMBEDDING_MODEL=openai  # or ollama
-   LLM_MODEL=openai        # or ollama
-   
-   # OpenAI (if using)
-   OPENAI_API_KEY=your-openai-api-key
-   OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-   OPENAI_CHAT_MODEL=gpt-3.5-turbo
-   
-   # Ollama (if using locally)
-   OLLAMA_API_URL=http://localhost:11434
-   OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-   OLLAMA_CHAT_MODEL=llama3
-   
-   # Server
-   PORT=3000
+1. Create a PostgreSQL database and enable pgvector:
+   ```sql
+   CREATE DATABASE ai_documents;
+   \c ai_documents
+   CREATE EXTENSION IF NOT EXISTS vector;
    ```
 
-3. Install backend dependencies:
+2. Set up environment variables:
    ```bash
    cd backend
+   cp env-template.txt .env
+   ```
+   Edit `.env` with your PostgreSQL and LLM settings.
+
+3. Install dependencies and create uploads directory:
+   ```bash
    npm install
-   mkdir uploads
+   mkdir -p uploads
    ```
 
 4. Start the backend server:
    ```bash
-   npm run start:dev
+   npm run start:local
    ```
+   The server auto-syncs the database schema on startup.
 
 ### Frontend Setup
 
-1. Configure the API URL:
-   ```
+1. Create a `.env` file:
+   ```bash
    cd frontend
-   ```
-   Create a `.env` file:
-   ```
-   REACT_APP_API_URL=http://localhost:3000
+   echo "REACT_APP_API_URL=http://localhost:3000" > .env
    ```
 
-2. Install frontend dependencies:
+2. Install and start:
    ```bash
    npm install
-   ```
-
-3. Start the frontend development server:
-   ```bash
    npm start
    ```
-   The frontend application will be available at `http://localhost:3000`.
 
 ### Ollama Setup (Optional)
 
-If you're using Ollama for local LLM functionality:
-
-1. Install Ollama by following the instructions at [ollama.com](https://ollama.com)
-2. Start the Ollama service
-3. Use the backend API to set up required models:
+1. Install Ollama from [ollama.com](https://ollama.com)
+2. Pull required models:
+   ```bash
+   ollama pull llama3
+   ollama pull nomic-embed-text
    ```
-   POST /system/ollama/setup
-   Body: { "models": ["llama2", "nomic-embed-text"] }
-   ```
+3. Check status via API: `GET /system/ollama/status`
 
 ## API Documentation
 
-When the backend server is running, access the Swagger documentation at:
+When the backend is running:
 ```
 http://localhost:3000/api-docs
 ```
 
+## Database Schema
+
+| Table | Purpose |
+|-------|---------|
+| `uploaded_documents` | File metadata (name, path, vectorized status) |
+| `documents` | Text chunks with embeddings for vector search |
+
 ## Workflow
 
-1. Upload a document via the frontend interface
-2. Process the document for Q&A
-3. Ask questions about the document through the chat interface
+1. Upload a document via the frontend
+2. Process the document for Q&A (creates embeddings)
+3. Ask questions through the chat interface
 
 ## Building for Production
 
-### Backend
 ```bash
-cd backend
-npm run start:prod
+# Backend
+cd backend && npm run start:prod
+
+# Frontend
+cd frontend && npm run build
 ```
 
-### Frontend
+## Docker
+
+Configure `backend/.env` (see `backend/env-template.txt`), then:
+
 ```bash
-cd frontend
-npm run build
+docker compose up --build -d
 ```
-This will create a `build` folder with the optimized production build.
+
+Backend loads env from `backend/.env` via `env_file` (not baked into the image).
+Use Docker hostnames when Postgres/Ollama run in other containers:
+
+```
+PG_HOST=postgres
+OLLAMA_API_URL=http://ollama:11434
+```
+
+Those containers must share a Docker network with the backend.
+
+| Service  | URL |
+|----------|-----|
+| Frontend | http://localhost:3001 |
+| Backend  | http://localhost:3000 |
+| API Docs | http://localhost:3000/api-docs |
+
+```bash
+docker compose down
+```
 
 ## License
 

@@ -1,22 +1,18 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { 
-  Box, 
-  Typography, 
-  Paper, 
-  Button, 
-  List, 
-  ListItem, 
-  ListItemIcon, 
-  ListItemText,
+import {
+  Box,
+  Typography,
+  Button,
   IconButton,
   LinearProgress,
-  Alert
+  Alert,
+  Stack,
 } from '@mui/material';
-import { 
-  CloudUpload as CloudUploadIcon, 
-  Description as DescriptionIcon,
-  Delete as DeleteIcon
+import {
+  CloudUploadOutlined as CloudUploadIcon,
+  DescriptionOutlined as DescriptionIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { documentApi } from '../api';
 
@@ -27,22 +23,21 @@ const DocumentUpload = ({ onUploadComplete }) => {
   const [error, setError] = useState(null);
 
   const onDrop = useCallback((acceptedFiles) => {
-    // Filter for supported file types: PDF, DOCX, XLSX, TXT
-    const supportedFiles = acceptedFiles.filter(file => {
+    const supportedFiles = acceptedFiles.filter((file) => {
       const fileType = file.name.split('.').pop().toLowerCase();
       return ['pdf', 'docx', 'xlsx', 'txt'].includes(fileType);
     });
-    
+
     if (supportedFiles.length !== acceptedFiles.length) {
-      setError('Some files were ignored. Only PDF, DOCX, XLSX, and TXT files are supported.');
+      setError('Only PDF, DOCX, XLSX, and TXT files are supported.');
     } else {
       setError(null);
     }
-    
-    setFiles((prevFiles) => [...prevFiles, ...supportedFiles]);
+
+    setFiles(supportedFiles.slice(0, 1));
   }, []);
-  
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: {
       'application/pdf': ['.pdf'],
@@ -50,225 +45,156 @@ const DocumentUpload = ({ onUploadComplete }) => {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
       'text/plain': ['.txt'],
     },
-    maxSize: 10485760, // 10 MB
-    multiple: false // Allow only one file at a time
+    maxSize: 10485760,
+    multiple: false,
+    noClick: false,
+    noKeyboard: false,
   });
-  
-  const removeFile = (fileIndex) => {
-    setFiles((prevFiles) => prevFiles.filter((_, index) => index !== fileIndex));
+
+  const removeFile = () => setFiles([]);
+
+  const resolveDocumentId = (uploadResponse) => {
+    const data = uploadResponse.data?.data || uploadResponse.data || {};
+    return data.documentId || data._id || data.id || uploadResponse.data?._id || uploadResponse.data?.id;
   };
-  
-  const getFileIcon = (fileName) => {
-    const extension = fileName.split('.').pop().toLowerCase();
-    switch (extension) {
-      case 'pdf':
-        return <DescriptionIcon color="error" />;
-      case 'docx':
-        return <DescriptionIcon color="primary" />;
-      case 'xlsx':
-        return <DescriptionIcon color="success" />;
-      case 'txt':
-        return <DescriptionIcon color="info" />;
-      default:
-        return <DescriptionIcon />;
-    }
-  };
-  
+
   const handleUpload = async () => {
     if (files.length === 0) return;
-    
+
     setUploading(true);
     setError(null);
-    
+
     try {
-      // Upload the first file only (single document chat)
       const file = files[0];
-      
-      setUploadProgress({ [file.name]: 0 });
-      
-      // Upload the document
+      setUploadProgress({ [file.name]: 10 });
+
       const uploadResponse = await documentApi.uploadDocument(file);
-      setUploadProgress({ [file.name]: 50 });
-      
-      console.log('Upload response:', uploadResponse);
-      
-      // Check different possible response structures
-      let documentId;
-      
-      if (uploadResponse.data?.data?._id) {
-        // Standard structure as expected
-        documentId = uploadResponse.data.data._id;
-      } else if (uploadResponse.data?._id) {
-        // Alternative structure without nested data
-        documentId = uploadResponse.data._id;
-      } else if (uploadResponse.data?.data?.id) {
-        // Some APIs use 'id' instead of '_id'
-        documentId = uploadResponse.data.data.id;
-      } else if (uploadResponse.data?.id) {
-        // Direct id property
-        documentId = uploadResponse.data.id;
-      }
-      
-      // Check if we got a valid document ID
+      setUploadProgress({ [file.name]: 55 });
+
+      const documentId = resolveDocumentId(uploadResponse);
       if (!documentId) {
-        console.error('No document ID found in response:', uploadResponse);
-        // Try to find any property that looks like an ID
-        const responseData = uploadResponse.data?.data || uploadResponse.data;
-        if (responseData) {
-          const possibleIdKeys = Object.keys(responseData).filter(key => 
-            key.toLowerCase().includes('id') || key === '_id');
-          if (possibleIdKeys.length > 0) {
-            documentId = responseData[possibleIdKeys[0]];
-            console.log(`Using ${possibleIdKeys[0]} as document ID:`, documentId);
-          }
-        }
+        throw new Error('Could not retrieve document ID from server response.');
       }
-      
-      if (!documentId) {
-        throw new Error('Failed to get document ID from upload response');
-      }
-      
-      // Process the document
+
       await documentApi.processDocument(documentId);
       setUploadProgress({ [file.name]: 100 });
-      
-      // Clear files after successful upload
       setFiles([]);
-      
-      // Notify parent component
-      if (onUploadComplete) {
-        onUploadComplete(documentId);
-      }
-      
-    } catch (error) {
-      console.error('Error uploading or processing document:', error);
-      
-      // Provide more specific error messages
-      if (error.message.includes('document ID')) {
-        setError('Failed to process document: Could not retrieve document ID from server response.');
-      } else if (error.response?.status === 404) {
-        setError('API endpoint not found. Please check server configuration.');
-      } else if (error.response?.status === 401) {
-        setError('Authentication failed. Please check your credentials.');
-      } else if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-        setError('Connection timed out. Server might be busy or unreachable.');
-      } else if (!navigator.onLine) {
-        setError('No internet connection. Please check your network.');
+      onUploadComplete?.(documentId);
+    } catch (err) {
+      console.error('Upload error:', err);
+      if (!navigator.onLine) {
+        setError('No internet connection. Check your network and retry.');
+      } else if (err.response?.status === 404) {
+        setError('API endpoint not found. Check server configuration.');
       } else {
-        setError(`Failed to ${error.message.includes('document ID') ? 'process' : 'upload'} document: ${error.response?.data?.msg || error.message}`);
+        setError(err.response?.data?.msg || err.message || 'Upload failed. Please retry.');
       }
     } finally {
       setUploading(false);
     }
   };
-  
+
   return (
     <Box sx={{ width: '100%' }}>
       {error && (
-        <Alert 
-          severity="error" 
-          sx={{ mb: 2 }}
-          onClose={() => setError(null)}
-        >
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)} role="alert">
           {error}
         </Alert>
       )}
-      
-      <Paper
-        {...getRootProps()}
-        elevation={3}
-        sx={{
-          p: 3,
-          borderRadius: 2,
-          border: '2px dashed',
-          borderColor: isDragActive ? 'primary.main' : 'grey.300',
-          backgroundColor: isDragActive ? 'rgba(58, 134, 255, 0.05)' : 'background.paper',
-          transition: 'all 0.3s',
-          cursor: 'pointer',
-          mb: 3,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '200px',
-          '&:hover': {
-            borderColor: 'primary.light',
-            backgroundColor: 'rgba(58, 134, 255, 0.05)'
-          }
-        }}
+
+      <Box
+        {...getRootProps({
+          className: `dropzone${isDragActive ? ' is-active' : ''}`,
+          'aria-label': 'Upload document dropzone',
+        })}
       >
-        <input {...getInputProps()} />
-        <CloudUploadIcon color="primary" sx={{ fontSize: 60, mb: 2 }} />
-        <Typography variant="h6" color="textPrimary" align="center" gutterBottom>
-          {isDragActive ? 'Drop your document here...' : 'Drag & drop your document here'}
-        </Typography>
-        <Typography variant="body2" color="textSecondary" align="center">
-          or click to select files
-        </Typography>
-        <Typography variant="caption" color="textSecondary" align="center" sx={{ mt: 1 }}>
-          Supported formats: PDF, DOCX, XLSX, TXT (Max size: 10MB)
-        </Typography>
-      </Paper>
-      
-      {files.length > 0 && (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom>
-            Selected Document:
-          </Typography>
-          <List>
-            {files.map((file, index) => (
-              <ListItem
-                key={index}
-                secondaryAction={
-                  !uploading && (
-                    <IconButton edge="end" onClick={() => removeFile(index)} disabled={uploading}>
-                      <DeleteIcon />
-                    </IconButton>
-                  )
-                }
-                sx={{
-                  backgroundColor: 'background.paper',
-                  borderRadius: 1,
-                  mb: 1,
-                  boxShadow: 1
-                }}
-              >
-                <ListItemIcon>
-                  {getFileIcon(file.name)}
-                </ListItemIcon>
-                <ListItemText 
-                  primary={file.name} 
-                  secondary={`${(file.size / (1024 * 1024)).toFixed(2)} MB`} 
-                />
-                {uploading && uploadProgress[file.name] !== undefined && (
-                  <Box sx={{ width: '100%', ml: 2 }}>
-                    <LinearProgress
-                      variant="determinate"
-                      value={uploadProgress[file.name]}
-                      sx={{ height: 8, borderRadius: 5 }}
-                    />
-                  </Box>
-                )}
-              </ListItem>
-            ))}
-          </List>
-          
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleUpload}
-              disabled={files.length === 0 || uploading}
-              startIcon={<CloudUploadIcon />}
-              sx={{ px: 3 }}
-            >
-              {uploading ? 'Uploading...' : 'Upload & Process'}
-            </Button>
-          </Box>
+        <input {...getInputProps()} aria-label="Choose document file" />
+        <Box
+          sx={{
+            width: 56,
+            height: 56,
+            mx: 'auto',
+            mb: 1.5,
+            borderRadius: 2,
+            display: 'grid',
+            placeItems: 'center',
+            backgroundColor: 'var(--color-accent-soft)',
+            color: 'var(--color-accent)',
+          }}
+        >
+          <CloudUploadIcon />
         </Box>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>
+          {isDragActive ? 'Drop to upload' : 'Drop a document here'}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          PDF, DOCX, XLSX, or TXT — up to 10MB
+        </Typography>
+        <Button
+          variant="outlined"
+          onClick={(e) => {
+            e.stopPropagation();
+            open();
+          }}
+        >
+          Browse files
+        </Button>
+      </Box>
+
+      {files.length > 0 && (
+        <Stack spacing={1.5} sx={{ mt: 2 }}>
+          {files.map((file) => (
+            <Box
+              key={file.name}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.25,
+                p: 1.25,
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: 'divider',
+                backgroundColor: '#F8FAFC',
+              }}
+            >
+              <DescriptionIcon color="primary" />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" noWrap fontWeight={600}>
+                  {file.name}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {(file.size / (1024 * 1024)).toFixed(2)} MB
+                </Typography>
+                {uploading && (
+                  <LinearProgress
+                    variant="determinate"
+                    value={uploadProgress[file.name] || 0}
+                    sx={{ mt: 1, height: 6, borderRadius: 99 }}
+                    aria-label="Upload progress"
+                  />
+                )}
+              </Box>
+              {!uploading && (
+                <IconButton aria-label={`Remove ${file.name}`} onClick={removeFile} size="small">
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Box>
+          ))}
+
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={handleUpload}
+            disabled={uploading}
+            startIcon={<CloudUploadIcon />}
+          >
+            {uploading ? 'Uploading & processing…' : 'Upload & process'}
+          </Button>
+        </Stack>
       )}
     </Box>
   );
 };
 
-export default DocumentUpload; 
+export default DocumentUpload;

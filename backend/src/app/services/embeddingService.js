@@ -1,20 +1,20 @@
 const { OpenAIEmbeddings } = require("@langchain/openai");
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
 const PostgresVectorStore = require("./postgresVectorStore");
-const Document = require("../models/documentModel");
+const DocumentRepository = require("../models/documentRepository");
 const { DirectOllamaEmbeddings } = require("./customEmbeddings");
 
 class EmbeddingService {
     /**
      * Create embeddings for a document
-     * @param {string} documentId - MongoDB document ID
+     * @param {string} documentId - Document UUID
      * @param {string} text - Text content of the document
      * @returns {Promise<Object>} Result of embedding process
      */
     async createEmbeddings(documentId, text) {
         try {
             // Retrieve the document
-            const document = await Document.findById(documentId);
+            const document = await DocumentRepository.findById(documentId);
             if (!document) {
                 throw new Error("Document not found");
             }
@@ -74,10 +74,7 @@ class EmbeddingService {
                 }
             );
             
-            // Update the document record with embedding info
-            document.vectorized = true;
-            document.supabaseCollectionName = tableName; // Keep field name for compatibility
-            await document.save();
+            await DocumentRepository.markVectorized(documentId, tableName);
             
             return {
                 success: true,
@@ -119,7 +116,7 @@ class EmbeddingService {
     
     /**
      * Find document chunks relevant to a query
-     * @param {string} documentId - MongoDB document ID
+     * @param {string} documentId - Document UUID
      * @param {string} query - Query text
      * @param {number} topK - Number of results to return
      * @returns {Promise<Array>} Relevant document chunks
@@ -127,127 +124,100 @@ class EmbeddingService {
     async findRelevantChunks(documentId, query, topK = 5) {
         try {
             console.log(`[DEBUG] Finding relevant chunks for document: ${documentId}`);
-            
-            const document = await Document.findById(documentId);
+
+            const document = await DocumentRepository.findById(documentId);
             if (!document) {
-                console.log(`[DEBUG] Document not found in MongoDB: ${documentId}`);
                 throw new Error("Document not found");
             }
-            
-            console.log(`[DEBUG] Document found: ${document.originalName}, vectorized: ${document.vectorized}`);
-            
+
             if (!document.vectorized) {
-                console.log(`[DEBUG] Document has not been vectorized: ${documentId}`);
                 throw new Error("Document has not been vectorized");
             }
-            
+
             const docIdStr = documentId.toString();
             const { pgPool } = require("../../config/dbConnect");
             const client = await pgPool.connect();
-            
+
             try {
-                // First, try direct document lookup (most reliable)
-                console.log(`[DEBUG] Attempting direct document lookup for: ${docIdStr}`);
-                const directResult = await client.query(
-                    `SELECT id, content, metadata FROM documents WHERE metadata->>'documentId' = $1 OR metadata->>'document_id' = $1 OR metadata->>'id' = $1`,
-                    [docIdStr]
-                );
-                
-                console.log(`[DEBUG] Direct lookup returned ${directResult.rows.length} results`);
-                
-                if (directResult.rows.length > 0) {
-                    console.log(`[DEBUG] ✅ Found document chunks directly, using text-based relevance scoring`);
-                    
-                    // Use text-based relevance scoring
-                    const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
-                    
-                    if (queryTerms.length === 0) {
-                        // If no meaningful query terms, return all chunks
-                        return directResult.rows.slice(0, topK).map(doc => ({
-                            pageContent: doc.content,
-                            metadata: typeof doc.metadata === 'string' ? JSON.parse(doc.metadata) : doc.metadata
-                        }));
-                    }
-                    
-                    // Score chunks based on query term frequency
-                    const scoredChunks = directResult.rows.map(doc => {
-                        const content = doc.content.toLowerCase();
-                        let score = 0;
-                        
-                        queryTerms.forEach(term => {
-                            const regex = new RegExp(term, 'g');
-                            const matches = content.match(regex);
-                            if (matches) {
-                                score += matches.length;
-                            }
-                        });
-                        
-                        return {
-                            doc,
-                            score
-                        };
-                    });
-                    
-                    // Sort by score and return top results
-                    scoredChunks.sort((a, b) => b.score - a.score);
-                    
-                    return scoredChunks.slice(0, topK).map(item => ({
-                        pageContent: item.doc.content,
-                        metadata: typeof item.doc.metadata === 'string' ? JSON.parse(item.doc.metadata) : item.doc.metadata
-                    }));
-                }
-                
-                // If direct lookup fails, try vector search as fallback
-                console.log(`[DEBUG] Direct lookup failed, attempting vector search...`);
-                
+                // 1) Vector similarity within this document (real RAG grounding)
                 try {
                     const embeddings = this._getEmbeddingModel();
                     const queryEmbedding = await embeddings.embedQuery(query);
-                    
-                    // Check if embedding is valid (not all zeros from fallback)
-                    const hasNonZeroValues = queryEmbedding.some(val => val !== 0);
+                    const hasNonZeroValues = queryEmbedding.some((val) => val !== 0);
+
                     if (hasNonZeroValues) {
-                        console.log(`[DEBUG] Using vector search with valid embedding`);
+                        const vectorLiteral = `[${queryEmbedding.join(",")}]`;
                         const vectorResult = await client.query(
-                            `SELECT * FROM match_documents($1, 0.1, $2)`,
-                            [`[${queryEmbedding.join(',')}]`, topK * 2]
+                            `SELECT id, content, metadata,
+                                    1 - (embedding <=> $1::vector) AS similarity
+                             FROM documents
+                             WHERE metadata->>'documentId' = $2
+                                OR metadata->>'document_id' = $2
+                                OR metadata->>'id' = $2
+                             ORDER BY embedding <=> $1::vector
+                             LIMIT $3`,
+                            [vectorLiteral, docIdStr, topK]
                         );
-                        
-                        console.log(`[DEBUG] Vector search returned ${vectorResult.rows.length} results`);
-                        
-                        // Filter vector results by document ID
-                        const matchingChunks = vectorResult.rows.filter(doc => {
-                            try {
-                                const meta = typeof doc.metadata === 'string' 
-                                    ? JSON.parse(doc.metadata) 
-                                    : doc.metadata;
-                                
-                                return (meta?.documentId && meta.documentId.toString() === docIdStr) || 
-                                       (meta?.document_id && meta.document_id.toString() === docIdStr) || 
-                                       (meta?.id && meta.id.toString() === docIdStr);
-                            } catch (err) {
-                                return false;
-                            }
-                        });
-                        
-                        if (matchingChunks.length > 0) {
-                            console.log(`[DEBUG] ✅ Found ${matchingChunks.length} chunks via vector search`);
-                            return matchingChunks.slice(0, topK).map(doc => ({
+
+                        if (vectorResult.rows.length > 0) {
+                            console.log(
+                                `[DEBUG] Vector search returned ${vectorResult.rows.length} chunks ` +
+                                `(best similarity=${Number(vectorResult.rows[0].similarity).toFixed(3)})`
+                            );
+                            return vectorResult.rows.map((doc) => ({
                                 pageContent: doc.content,
-                                metadata: typeof doc.metadata === 'string' ? JSON.parse(doc.metadata) : doc.metadata
+                                metadata: typeof doc.metadata === "string"
+                                    ? JSON.parse(doc.metadata)
+                                    : doc.metadata
                             }));
                         }
                     } else {
-                        console.log(`[DEBUG] Embedding is invalid (all zeros), skipping vector search`);
+                        console.warn("[DEBUG] Query embedding was all zeros; falling back to keyword scoring");
                     }
                 } catch (vectorError) {
-                    console.log(`[DEBUG] Vector search failed: ${vectorError.message}`);
+                    console.warn(`[DEBUG] Vector search failed, keyword fallback: ${vectorError.message}`);
                 }
-                
-                // If both methods fail, throw error
-                console.log(`[DEBUG] ❌ No chunks found for document ID: ${docIdStr}`);
-                throw new Error(`No chunks found for document ID: ${docIdStr}`);
-                
+
+                // 2) Keyword fallback if embeddings/vector path fails
+                const directResult = await client.query(
+                    `SELECT id, content, metadata FROM documents
+                     WHERE metadata->>'documentId' = $1
+                        OR metadata->>'document_id' = $1
+                        OR metadata->>'id' = $1`,
+                    [docIdStr]
+                );
+
+                if (directResult.rows.length === 0) {
+                    throw new Error(`No chunks found for document ID: ${docIdStr}`);
+                }
+
+                const queryTerms = query.toLowerCase().split(/\s+/).filter((term) => term.length > 2);
+                if (queryTerms.length === 0) {
+                    return directResult.rows.slice(0, topK).map((doc) => ({
+                        pageContent: doc.content,
+                        metadata: typeof doc.metadata === "string" ? JSON.parse(doc.metadata) : doc.metadata
+                    }));
+                }
+
+                const scoredChunks = directResult.rows.map((doc) => {
+                    const content = doc.content.toLowerCase();
+                    let score = 0;
+                    queryTerms.forEach((term) => {
+                        const matches = content.match(new RegExp(term, "g"));
+                        if (matches) score += matches.length;
+                    });
+                    return { doc, score };
+                });
+
+                scoredChunks.sort((a, b) => b.score - a.score);
+                console.log(`[DEBUG] Keyword fallback selected ${Math.min(topK, scoredChunks.length)} chunks`);
+
+                return scoredChunks.slice(0, topK).map((item) => ({
+                    pageContent: item.doc.content,
+                    metadata: typeof item.doc.metadata === "string"
+                        ? JSON.parse(item.doc.metadata)
+                        : item.doc.metadata
+                }));
             } finally {
                 client.release();
             }

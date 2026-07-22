@@ -4,7 +4,6 @@ const multer = require("multer");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 
-// Configure multer storage for file uploads
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, path.join(__dirname, "../../uploads"));
@@ -16,7 +15,6 @@ const storage = multer.diskStorage({
     },
 });
 
-// File filter to restrict types
 const fileFilter = (req, file, cb) => {
     const allowedTypes = [
         "application/pdf",
@@ -35,10 +33,42 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage, fileFilter });
 
 module.exports = function (router, auth) {
-    router.get("/documents", documentController.getDocuments);
-    router.get( "/documents/:documentId", documentValidate.validateDocumentId, documentController.getDocumentById);
-    router.post( "/documents", upload.single("file"), documentValidate.validateFileUpload, documentController.uploadDocument);
-    router.post("/documents/:documentId/process", documentValidate.validateDocumentId, documentController.processDocument);
-    router.post("/documents/:documentId/ask", documentValidate.validateQuestion, documentController.askQuestion);
-    router.delete( "/documents/:documentId", documentValidate.validateDocumentId, documentController.deleteDocument);
-}; 
+    router.get("/documents", auth.verifyToken, documentController.getDocuments);
+    router.get(
+        "/documents/:documentId",
+        auth.verifyToken,
+        documentValidate.validateDocumentId,
+        documentController.getDocumentById
+    );
+    router.get(
+        "/documents/:documentId/messages",
+        auth.verifyToken,
+        documentValidate.validateDocumentId,
+        documentController.getMessages
+    );
+    router.post(
+        "/documents",
+        auth.verifyToken,
+        upload.single("file"),
+        documentValidate.validateFileUpload,
+        documentController.uploadDocument
+    );
+    router.post(
+        "/documents/:documentId/process",
+        auth.verifyToken,
+        documentValidate.validateDocumentId,
+        documentController.processDocument
+    );
+    router.post(
+        "/documents/:documentId/ask",
+        auth.verifyToken,
+        documentValidate.validateQuestion,
+        documentController.askQuestion
+    );
+    router.delete(
+        "/documents/:documentId",
+        auth.verifyToken,
+        documentValidate.validateDocumentId,
+        documentController.deleteDocument
+    );
+};

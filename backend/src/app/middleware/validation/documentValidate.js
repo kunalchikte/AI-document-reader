@@ -9,7 +9,7 @@ exports.validateDocumentId = [
     param("documentId")
         .notEmpty()
         .withMessage("Document ID is required")
-        .isMongoId()
+        .isUUID()
         .withMessage("Invalid document ID format"),
     validateRequest
 ];
@@ -52,7 +52,7 @@ exports.validateQuestion = [
     param("documentId")
         .notEmpty()
         .withMessage("Document ID is required")
-        .isMongoId()
+        .isUUID()
         .withMessage("Invalid document ID format"),
     body("question")
         .notEmpty()

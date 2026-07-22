@@ -5,14 +5,15 @@
     "start": "NODE_ENV=prod node server.js",
     "start:prod": "NODE_ENV=prod node server.js",
     "start:dev": "NODE_ENV=dev node server.js",
-    "start:local": "cross-env NODE_ENV=local nodemon server.js",
-    "install:ollama": "node scripts/install-ollama.js"
+    "start:local": "cross-env NODE_ENV=local nodemon server.js"
   },
   "dependencies": {
     "@langchain/community": "^0.3.49",
     "@langchain/core": "^0.3.58",
+    "@langchain/google-genai": "^0.2.18",
     "@langchain/openai": "^0.6.0",
     "axios": "^1.7.7",
+    "bcryptjs": "^2.4.3",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
     "docx-parser": "^0.2.1",
@@ -25,13 +26,13 @@
     "jsonwebtoken": "^9.0.2",
     "langchain": "^0.2.20",
     "mammoth": "^1.6.0",
-    "mongoose": "^8.8.0",
     "morgan": "^1.10.0",
     "multer": "^2.0.0-rc.4",
     "pdf-parse": "^1.1.1",
     "pg": "^8.11.3",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
+    "uuid": "^9.0.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

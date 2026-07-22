@@ -3,7 +3,7 @@ const path = require("path");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const xlsx = require("xlsx");
-const Document = require("../models/documentModel");
+const DocumentRepository = require("../models/documentRepository");
 
 // Helper function for logging
 const logOperation = (operation, info = {}) => {
@@ -25,7 +25,7 @@ const logError = (functionName, error, additionalInfo = {}) => {
 
 class FileService {
     /**
-     * Create a new document record in MongoDB
+     * Create a new document record in PostgreSQL
      * @param {Object} fileInfo - File information
      * @returns {Promise<Object>} Created document record
      */
@@ -39,40 +39,19 @@ class FileService {
         });
         
         try {
-            // Create document with retry logic
-            let document = null;
-            let retries = 3;
-            let lastError = null;
-            
-            while (retries > 0 && !document) {
-                try {
-                    document = new Document({
-                        filename: fileInfo.filename,
-                        fileType: fileInfo.fileType,
-                        originalName: fileInfo.originalName,
-                        filePath: fileInfo.filePath,
-                        uploadedBy: fileInfo.userId || null,
-                        metadata: {
-                            size: fileInfo.size,
-                        }
-                    });
-                    
-                    await document.save();
-                    logOperation(`${functionName} document saved successfully`, { documentId: document._id });
-                    return document;
-                } catch (err) {
-                    lastError = err;
-                    retries--;
-                    if (retries > 0) {
-                        logOperation(`${functionName} retry attempt remaining: ${retries}`);
-                        // Wait a bit before retry
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                    }
+            const document = await DocumentRepository.create({
+                filename: fileInfo.filename,
+                fileType: fileInfo.fileType,
+                originalName: fileInfo.originalName,
+                filePath: fileInfo.filePath,
+                uploadedBy: fileInfo.userId || null,
+                metadata: {
+                    size: fileInfo.size,
                 }
-            }
-            
-            // If we get here, all retries failed
-            throw lastError || new Error("Failed to save document after multiple attempts");
+            });
+
+            logOperation(`${functionName} document saved successfully`, { documentId: document.id });
+            return document;
         } catch (error) {
             logError(functionName, error, { 
                 filename: fileInfo.filename,
